@@ -1,0 +1,16 @@
+# Compiled binaries and generated icons
+*.exe
+*.dll
+*.pdb
+*.ico
+
+# Build directories
+bin/
+obj/
+.vs/
+.idea/
+.vscode/
+
+# OS metadata
+Thumbs.db
+.DS_Store
