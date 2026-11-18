@@ -204,6 +204,21 @@ namespace SnowyWindows
         [DllImport("dwmapi.dll")]
         public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
 
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+        [DllImport("user32.dll")]
+        public static extern bool ReleaseCapture();
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
+
+        public const int WM_NCLBUTTONDOWN = 0xA1;
+        public const int HT_CAPTION = 0x2;
+        public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+        public const int DWMWCP_ROUND = 2;
+
         [DllImport("shcore.dll")]
         public static extern int SetProcessDpiAwareness(int value);
 
@@ -788,9 +803,11 @@ namespace SnowyWindows
         public bool InteractiveMode { get; private set; }
         public bool FairyLightsEnabled { get; set; }
         public bool IciclesEnabled { get; set; }
+        public bool CableCarEnabled { get; set; }
         public bool BlizzardMode { get; set; }
         public bool MultiMonitorEnabled { get; private set; }
         public int ActiveMonitorCount { get { return _activeMonitorCount; } }
+        public bool IsEnglish { get; set; }
         public int ActiveSnowCount { get; set; }
         public float MaxPileHeight { get; set; }
         public float WindNx { get; set; }
@@ -828,6 +845,16 @@ namespace SnowyWindows
         private CampfireEntity _draggedCampfire;
         private Point _lastCursorPos;
 
+        // İki uygulama arası Teleferik (Cable Car / Ski Gondola) durumu
+        private float _cableCarT = 0.25f;          // 0.0 (İstasyon A) .. 1.0 (İstasyon B)
+        private int _cableCarDir = 1;              // 1: A->B, -1: B->A
+        private int _cableCarWaitTicks = 0;        // İstasyonda yolcu indirme/bindirme beklemesi
+        private float _cableCarSwingAngle = 0f;    // Kabin sarkaç salınım açısı (derece)
+        private float _cableCarSwingVel = 0f;
+        private float _cableWheelAngle = 0f;       // Direk makarası dönüş açısı
+        private bool _cableCarHasValidSpan = false;
+        private float _cableAx, _cableAy, _cableBx, _cableBy;
+
         // Fare Sürükleme & Fırlatma Hız Geçmişi (Velocity Tracker)
         private SnowPlowEntity _draggedPlow;
         private SnowballEntity _draggedSnowball;
@@ -864,7 +891,7 @@ namespace SnowyWindows
         private SolidBrush[] _lightGlowBrushes;
         private SolidBrush[] _lightMidBrushes;
         private SolidBrush _lightCoreBrush;
-        private PointF[] _wireBuf = new PointF[64];
+        private readonly Dictionary<int, PointF[]> _wireBuffers = new Dictionary<int, PointF[]>();
 
         public event Action OnInteractiveModeChanged;
 
@@ -890,6 +917,7 @@ namespace SnowyWindows
             InteractiveMode = false;
             FairyLightsEnabled = true;
             IciclesEnabled = true;
+            CableCarEnabled = true;
             BlizzardMode = false;
             ActiveSnowCount = 420;
             MaxPileHeight = 34f;
@@ -1227,6 +1255,28 @@ namespace SnowyWindows
                 float r = 10f + (float)_rng.NextDouble() * 4f;
                 _snowballs.Add(new SnowballEntity(x, target.Top - 25f, r, IntPtr.Zero));
             }
+        }
+
+        public void RemoveLastSnowPlow()
+        {
+            if (_plows.Count == 0) return;
+            int idx = _plows.Count - 1;
+            SnowPlowEntity p = _plows[idx];
+            if (p.PlowedSnowMass > 0.4f)
+                ShedPlowMound(p, 1f);
+            BurstSnowSparkles(p.X, p.Y - 10f, 16);
+            if (_draggedPlow == p) _draggedPlow = null;
+            _plows.RemoveAt(idx);
+        }
+
+        public void RemoveLastCampfire()
+        {
+            if (_campfires.Count == 0) return;
+            int idx = _campfires.Count - 1;
+            CampfireEntity cf = _campfires[idx];
+            BurstSnowSparkles(cf.X, cf.Y - 10f, 16);
+            if (_draggedCampfire == cf) _draggedCampfire = null;
+            _campfires.RemoveAt(idx);
         }
 
         public void SpawnSnowPlow()
@@ -3379,6 +3429,180 @@ namespace SnowyWindows
             }
 
             UpdateCampfiresAndPopups(windVx);
+            UpdateCableCarPhysics(windVx);
+        }
+
+        private bool TryFindCableCarWindows(out WindowSurface leftWin, out WindowSurface rightWin)
+        {
+            leftWin = null;
+            rightWin = null;
+            if (!CableCarEnabled) return false;
+
+            // Önde ve görünür olan (maksimize veya görev çubuğu olmayan) en üstteki 2 uygulama penceresini seç
+            WindowSurface first = null;
+            WindowSurface second = null;
+
+            for (int i = 0; i < _orderedSurfaces.Count; i++)
+            {
+                WindowSurface s = _orderedSurfaces[i];
+                if (s.IsTaskbar || s.IsMaximized || s.Width < 160) continue;
+
+                // Pencerenin üst kenarının ortası başka bir pencere tarafından kapatılmış mı?
+                float midX = s.Left + s.Width * 0.5f;
+                if (IsOccludedByFrontWindow(midX, s.Top, s.ZOrder)) continue;
+
+                if (first == null)
+                    first = s;
+                else
+                {
+                    second = s;
+                    break;
+                }
+            }
+
+            if (first == null || second == null) return false;
+
+            float c1 = first.Left + first.Width * 0.5f;
+            float c2 = second.Left + second.Width * 0.5f;
+            if (c1 <= c2)
+            {
+                leftWin = first;
+                rightWin = second;
+            }
+            else
+            {
+                leftWin = second;
+                rightWin = first;
+            }
+            return true;
+        }
+
+        private void ComputeCableAnchors(WindowSurface leftWin, WindowSurface rightWin, out float ax, out float ay, out float bx, out float by)
+        {
+            // İki pencerenin birbirine bakan iç kenarlarına yakın kule noktaları seçilir
+            float lInner = leftWin.Right - Math.Min(65f, leftWin.Width * 0.24f);
+            float rInner = rightWin.Left + Math.Min(65f, rightWin.Width * 0.24f);
+
+            if (rInner - lInner >= 70f)
+            {
+                ax = lInner;
+                bx = rInner;
+            }
+            else
+            {
+                // Pencereler üst üste / dikey hizalıysa sol pencerenin soluna, sağ pencerenin sağına kur
+                ax = leftWin.Left + Math.Min(65f, leftWin.Width * 0.25f);
+                bx = rightWin.Right - Math.Min(65f, rightWin.Width * 0.25f);
+                if (Math.Abs(bx - ax) < 60f)
+                {
+                    ax = leftWin.Left + 35f;
+                    bx = rightWin.Right - 35f;
+                }
+            }
+            ay = leftWin.Top;
+            by = rightWin.Top;
+        }
+
+        private static PointF EvaluateCableCatenary(float p0x, float p0y, float p1x, float p1y, float t, float sag)
+        {
+            float x = p0x + (p1x - p0x) * t;
+            float y = p0y + (p1y - p0y) * t + 4f * sag * t * (1f - t);
+            return new PointF(x, y);
+        }
+
+        private void UpdateCableCarPhysics(float windVx)
+        {
+            WindowSurface leftWin, rightWin;
+            if (!TryFindCableCarWindows(out leftWin, out rightWin))
+            {
+                _cableCarHasValidSpan = false;
+                return;
+            }
+
+            float ax, ay, bx, by;
+            ComputeCableAnchors(leftWin, rightWin, out ax, out ay, out bx, out by);
+
+            // Direk noktaları başka bir pencere tarafından kapatıldıysa çizme
+            if (IsOccludedByFrontWindow(ax, ay, leftWin.ZOrder) || IsOccludedByFrontWindow(bx, by, rightWin.ZOrder))
+            {
+                _cableCarHasValidSpan = false;
+                return;
+            }
+
+            float prevAx = _cableAx, prevBx = _cableBx;
+            _cableAx = ax; _cableAy = ay;
+            _cableBx = bx; _cableBy = by;
+            _cableCarHasValidSpan = true;
+
+            float spanDist = (float)Math.Sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
+            if (spanDist < 40f)
+            {
+                _cableCarHasValidSpan = false;
+                return;
+            }
+
+            // Pencereler hareket ettirildiğinde kabin eylemsizlikle sallanır
+            float anchorMoveDx = (ax - prevAx) * (1f - _cableCarT) + (bx - prevBx) * _cableCarT;
+            if (Math.Abs(anchorMoveDx) > 0.5f && Math.Abs(anchorMoveDx) < 80f)
+                _cableCarSwingVel -= anchorMoveDx * 0.35f;
+
+            if (_cableCarWaitTicks > 0)
+            {
+                _cableCarWaitTicks--;
+            }
+            else
+            {
+                // İstasyonlara yaklaşırken yumuşak yavaşlama / hızlanma (smoothstep)
+                float edgeDist = Math.Min(_cableCarT, 1f - _cableCarT);
+                float speedFactor = 0.38f + Math.Min(1f, edgeDist * 5.5f) * 0.62f;
+                float step = (2.1f * speedFactor) / Math.Max(140f, spanDist);
+
+                _cableCarT += _cableCarDir * step;
+                _cableWheelAngle += _cableCarDir * 5.5f * speedFactor;
+
+                if (_cableCarT >= 1f)
+                {
+                    _cableCarT = 1f;
+                    _cableCarDir = -1;
+                    _cableCarWaitTicks = 38; // İstasyonda kısa mola
+                    _cableCarSwingVel += 3.2f;
+                }
+                else if (_cableCarT <= 0f)
+                {
+                    _cableCarT = 0f;
+                    _cableCarDir = 1;
+                    _cableCarWaitTicks = 38;
+                    _cableCarSwingVel -= 3.2f;
+                }
+            }
+
+            // Rüzgar ve sarkaç dinamiği
+            float targetSwing = Math.Max(-22f, Math.Min(22f, windVx * 1.65f));
+            _cableCarSwingVel += (targetSwing - _cableCarSwingAngle) * 0.10f;
+            _cableCarSwingVel *= 0.88f;
+            _cableCarSwingAngle = Math.Max(-42f, Math.Min(42f, _cableCarSwingAngle + _cableCarSwingVel));
+
+            // Kartopu teleferik kabinine çarparsa kabin şiddetle sallanır ve çatısından kar dökülür!
+            float towerH = 28f;
+            float sag = Math.Min(48f, 12f + spanDist * 0.055f);
+            PointF trolleyPt = EvaluateCableCatenary(ax, ay - towerH, bx, by - towerH, _cableCarT, sag);
+            float cabinCx = trolleyPt.X;
+            float cabinCy = trolleyPt.Y + 20f;
+
+            for (int i = _snowballs.Count - 1; i >= 0; i--)
+            {
+                SnowballEntity sb = _snowballs[i];
+                if (sb.Dragging) continue;
+                float spd = (float)Math.Sqrt(sb.Vx * sb.Vx + sb.Vy * sb.Vy);
+                if (spd > 3.2f && Math.Abs(sb.X - cabinCx) <= sb.BaseRadius + 18f && Math.Abs((sb.Y - sb.BaseRadius) - cabinCy) <= sb.BaseRadius + 15f)
+                {
+                    _cableCarSwingVel += Math.Max(-18f, Math.Min(18f, sb.Vx * 1.8f));
+                    SpawnPopupText(cabinCx, cabinCy - 24f, IsEnglish ? "🚡 DING!" : "🚡 ÇUF!", Color.FromArgb(255, 253, 224, 71));
+                    BurstSnowSparkles(cabinCx, cabinCy, 18);
+                    _snowballs.RemoveAt(i);
+                    break;
+                }
+            }
         }
 
         private void UpdateCampfiresAndPopups(float windVx)
@@ -3458,7 +3682,7 @@ namespace SnowyWindows
                         float spd = (float)Math.Sqrt(sb.Vx * sb.Vx + sb.Vy * sb.Vy);
                         if (spd > 3.5f)
                         {
-                            SpawnPopupText(cf.X, cf.Y - 22f, "💨 SÖNDÜ!", Color.FromArgb(255, 186, 230, 253));
+                            SpawnPopupText(cf.X, cf.Y - 22f, IsEnglish ? "💨 DOUSED!" : "💨 SÖNDÜ!", Color.FromArgb(255, 186, 230, 253));
                             BurstSnowSparkles(cf.X, cf.Y - 10f, 20);
                             _snowballs.RemoveAt(bIdx);
                             _campfires.RemoveAt(i);
@@ -3619,6 +3843,10 @@ namespace SnowyWindows
             // 2. Tekil veya 2'li İstiflenmiş Kartopları (Snowballs)
             for (int i = 0; i < _snowballs.Count; i++)
                 DrawSnowballEntity(g, _snowballs[i]);
+
+            // 2a. İki Uygulama Arası Teleferik Hattı ve Kabini (🚡)
+            if (CableCarEnabled && _cableCarHasValidSpan)
+                DrawCableCarSystem(g);
 
             // 2b. Kamp Ateşleri (🔥)
             for (int i = 0; i < _campfires.Count; i++)
@@ -3935,6 +4163,173 @@ namespace SnowyWindows
 
         private static readonly Font PopupFont = new Font("Segoe UI", 9.5f, FontStyle.Bold);
 
+        private void DrawCableCarSystem(Graphics g)
+        {
+            float ax = _cableAx, ay = _cableAy;
+            float bx = _cableBx, by = _cableBy;
+            float towerH = 28f;
+            float p0x = ax, p0y = ay - towerH;
+            float p1x = bx, p1y = by - towerH;
+
+            float spanDist = (float)Math.Sqrt((p1x - p0x) * (p1x - p0x) + (p1y - p0y) * (p1y - p0y));
+            float baseSag = Math.Min(48f, 12f + spanDist * 0.055f);
+            // Kabinin bulunduğu noktada ağırlıktan dolayı hafif ekstra esneme
+            float weightBoost = 1f + 0.18f * (float)Math.Sin(_cableCarT * Math.PI);
+            float sag = baseSag * weightBoost;
+
+            // 1. Sarkan Çelik Halat (Catenary Curve)
+            const int segs = 20;
+            PointF[] cablePts = new PointF[segs + 1];
+            for (int i = 0; i <= segs; i++)
+            {
+                float t = i / (float)segs;
+                cablePts[i] = EvaluateCableCatenary(p0x, p0y, p1x, p1y, t, sag);
+            }
+
+            using (Pen cableShadowPen = new Pen(Color.FromArgb(140, 15, 23, 42), 2.8f))
+            using (Pen cableSteelPen = new Pen(Color.FromArgb(235, 148, 163, 184), 1.8f))
+            {
+                g.DrawLines(cableShadowPen, cablePts);
+                g.DrawLines(cableSteelPen, cablePts);
+            }
+
+            // 2. İki Pencere Üstündeki Teleferik İstasyon Direkleri (A ve B)
+            DrawCableTower(g, ax, ay, towerH);
+            DrawCableTower(g, bx, by, towerH);
+
+            // 3. Halat Üzerinde Kayan Tekerlek (Trolley) ve Sallanan Kırmızı Teleferik Kabini
+            PointF trolley = EvaluateCableCatenary(p0x, p0y, p1x, p1y, _cableCarT, sag);
+
+            // Halat eğim açısı
+            float dt = 0.02f;
+            PointF ptA = EvaluateCableCatenary(p0x, p0y, p1x, p1y, Math.Max(0f, _cableCarT - dt), sag);
+            PointF ptB = EvaluateCableCatenary(p0x, p0y, p1x, p1y, Math.Min(1f, _cableCarT + dt), sag);
+            float cableAngleDeg = (float)(Math.Atan2(ptB.Y - ptA.Y, ptB.X - ptA.X) * 180.0 / Math.PI);
+
+            // Trolley makaraları
+            GraphicsState trolleySt = g.Save();
+            g.TranslateTransform(trolley.X, trolley.Y);
+            g.RotateTransform(cableAngleDeg);
+            using (SolidBrush trolleyBrush = new SolidBrush(Color.FromArgb(245, 71, 85, 105)))
+            using (SolidBrush wheelBrush = new SolidBrush(Color.FromArgb(250, 234, 179, 8)))
+            {
+                g.FillRectangle(trolleyBrush, -7f, -4f, 14f, 5f);
+                g.FillEllipse(wheelBrush, -6f, -3.5f, 4f, 4f);
+                g.FillEllipse(wheelBrush, 2f, -3.5f, 4f, 4f);
+            }
+            g.Restore(trolleySt);
+
+            // Sallanan Askı Kolu ve Kabin
+            GraphicsState cabinSt = g.Save();
+            g.TranslateTransform(trolley.X, trolley.Y);
+            g.RotateTransform(_cableCarSwingAngle);
+
+            using (Pen hangerPen = new Pen(Color.FromArgb(240, 100, 116, 139), 2.2f))
+            {
+                g.DrawLine(hangerPen, 0f, 0f, 0f, 13f);
+                g.DrawLine(hangerPen, -5f, 13f, 5f, 13f);
+            }
+
+            // Kabin içi sıcak sarı ışık halesi (Per-Pixel Alpha)
+            if (!PerformanceMode)
+            {
+                using (SolidBrush cabinGlow = new SolidBrush(Color.FromArgb(48, 253, 224, 71)))
+                    g.FillEllipse(cabinGlow, -22f, 6f, 44f, 36f);
+            }
+
+            // Kırmızı Teleferik Kabin Gövdesi
+            RectangleF cabinRect = new RectangleF(-15f, 13f, 30f, 20f);
+            using (GraphicsPath cabinPath = GraphicsExt.CreateRoundedRect(cabinRect, 5f))
+            using (LinearGradientBrush cabinBrush = new LinearGradientBrush(
+                cabinRect,
+                Color.FromArgb(252, 239, 68, 68),
+                Color.FromArgb(252, 185, 28, 28),
+                LinearGradientMode.Vertical))
+            using (Pen cabinBorder = new Pen(Color.FromArgb(240, 127, 29, 29), 1.3f))
+            {
+                g.FillPath(cabinBrush, cabinPath);
+                g.DrawPath(cabinBorder, cabinPath);
+            }
+
+            // Kabin Alt Sarı/Beyaz Şerit
+            using (SolidBrush stripeBrush = new SolidBrush(Color.FromArgb(240, 254, 240, 138)))
+                g.FillRectangle(stripeBrush, -14f, 27f, 28f, 2.2f);
+
+            // Panoramik Pencereler (İçeride minik kardan adam yolcu silüeti ile!)
+            using (SolidBrush winGlass = new SolidBrush(Color.FromArgb(240, 254, 249, 195)))
+            using (Pen winFrame = new Pen(Color.FromArgb(220, 127, 29, 29), 1f))
+            {
+                g.FillRectangle(winGlass, -11.5f, 16f, 10f, 8.5f);
+                g.DrawRectangle(winFrame, -11.5f, 16f, 10f, 8.5f);
+
+                g.FillRectangle(winGlass, 1.5f, 16f, 10f, 8.5f);
+                g.DrawRectangle(winFrame, 1.5f, 16f, 10f, 8.5f);
+
+                // Sol pencerede seyahat eden minik kardan adam yolcu kafası
+                g.FillEllipse(_alphaWhiteBrushes[250], -8.5f, 18f, 5.5f, 5.5f);
+                g.FillEllipse(_coalBrush, -7f, 19.5f, 1.3f, 1.3f);
+                g.FillEllipse(_coalBrush, -5f, 19.5f, 1.3f, 1.3f);
+            }
+
+            // Kabin Üstündeki Beyaz Kar Şapkası
+            using (SolidBrush roofSnow = new SolidBrush(Color.FromArgb(250, 248, 250, 252)))
+            {
+                g.FillEllipse(roofSnow, -14f, 11f, 28f, 4.5f);
+            }
+
+            g.Restore(cabinSt);
+        }
+
+        private void DrawCableTower(Graphics g, float x, float y, float h)
+        {
+            float topY = y - h;
+
+            // A-Çerçeveli Çelik Kule Direği
+            using (Pen legPen = new Pen(Color.FromArgb(245, 71, 85, 105), 2.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            using (Pen bracePen = new Pen(Color.FromArgb(220, 100, 116, 139), 1.4f))
+            using (SolidBrush baseBrush = new SolidBrush(Color.FromArgb(245, 51, 65, 85)))
+            {
+                // Taban beton kaidesi
+                g.FillRectangle(baseBrush, x - 10f, y - 4f, 20f, 5f);
+
+                // İki yan çelik ayak ve çapraz kirişler
+                g.DrawLine(legPen, x - 8f, y - 3f, x - 2f, topY);
+                g.DrawLine(legPen, x + 8f, y - 3f, x + 2f, topY);
+                g.DrawLine(bracePen, x - 6f, y - 10f, x + 5f, y - 17f);
+                g.DrawLine(bracePen, x + 6f, y - 10f, x - 5f, y - 17f);
+                g.DrawLine(bracePen, x - 7f, y - 10f, x + 7f, y - 10f);
+            }
+
+            // Üst Dönen Makara Çarkı (Bullwheel)
+            float wr = 6.5f;
+            using (SolidBrush wheelFill = new SolidBrush(Color.FromArgb(230, 30, 41, 59)))
+            using (Pen wheelRim = new Pen(Color.FromArgb(250, 239, 68, 68), 2.2f))
+            using (Pen spokePen = new Pen(Color.FromArgb(220, 203, 213, 225), 1.2f))
+            {
+                g.FillEllipse(wheelFill, x - wr, topY - wr, wr * 2f, wr * 2f);
+                g.DrawEllipse(wheelRim, x - wr, topY - wr, wr * 2f, wr * 2f);
+
+                double a1 = _cableWheelAngle * Math.PI / 180.0;
+                double a2 = a1 + Math.PI * 0.5;
+                g.DrawLine(spokePen,
+                    x - (float)Math.Cos(a1) * (wr - 1f), topY - (float)Math.Sin(a1) * (wr - 1f),
+                    x + (float)Math.Cos(a1) * (wr - 1f), topY + (float)Math.Sin(a1) * (wr - 1f));
+                g.DrawLine(spokePen,
+                    x - (float)Math.Cos(a2) * (wr - 1f), topY - (float)Math.Sin(a2) * (wr - 1f),
+                    x + (float)Math.Cos(a2) * (wr - 1f), topY + (float)Math.Sin(a2) * (wr - 1f));
+            }
+
+            // Kule Tepe Uyarı Işığı
+            bool blink = ((_frameCount / 20) % 2) == 0;
+            if (blink && !PerformanceMode)
+            {
+                using (SolidBrush beaconGlow = new SolidBrush(Color.FromArgb(65, 56, 189, 248)))
+                    g.FillEllipse(beaconGlow, x - 7f, topY - wr - 9f, 14f, 14f);
+            }
+            using (SolidBrush beaconCore = new SolidBrush(blink ? Color.FromArgb(255, 56, 189, 248) : Color.FromArgb(200, 14, 116, 144)))
+                g.FillEllipse(beaconCore, x - 2.2f, topY - wr - 4f, 4.4f, 4.4f);
+        }
+
         private void DrawCampfire(Graphics g, CampfireEntity cf)
         {
             float x = cf.X;
@@ -4130,21 +4525,31 @@ namespace SnowyWindows
 
         private void DrawWindowFairyLights(Graphics g, WindowSurface surf)
         {
-            int idx = 0;
-            float swingX = (float)Math.Sin(surf.LightSwingAngle) * 6f;
-            int needed = (surf.Width / 38) + 4;
-            if (_wireBuf.Length < needed)
-                _wireBuf = new PointF[needed + 16];
-            int colorShift = _frameCount / 24;
-
+            int count = 0;
             for (int lx = surf.Left + 22; lx < surf.Right - 18; lx += 38)
-            {
-                if (idx >= _wireBuf.Length) break;
+                count++;
+            if (count < 2) return;
 
+            PointF[] pts;
+            if (!_wireBuffers.TryGetValue(count, out pts))
+            {
+                pts = new PointF[count];
+                _wireBuffers[count] = pts;
+            }
+
+            float swingX = (float)Math.Sin(surf.LightSwingAngle) * 6f;
+            int colorShift = _frameCount / 24;
+            int idx = 0;
+
+            GraphicsState lightClip = g.Save();
+            g.SetClip(new Rectangle(surf.Left, Math.Max(0, surf.Top - 12), surf.Width, 42), CombineMode.Intersect);
+
+            for (int lx = surf.Left + 22; lx < surf.Right - 18 && idx < count; lx += 38)
+            {
                 float sag = (idx % 2 == 0) ? 5.5f : 11f;
-                float bx = lx + swingX * ((idx % 2 == 0) ? 0.6f : 1.0f);
+                float bx = Math.Max(surf.Left + 6f, Math.Min(surf.Right - 6f, lx + swingX * ((idx % 2 == 0) ? 0.6f : 1.0f)));
                 float by = surf.Top + sag;
-                _wireBuf[idx] = new PointF(bx, by);
+                pts[idx] = new PointF(bx, by);
 
                 int ci = (idx + colorShift) % LightPalette.Length;
                 if (!PerformanceMode)
@@ -4154,8 +4559,8 @@ namespace SnowyWindows
                 idx++;
             }
 
-            if (idx >= 2)
-                g.DrawCurve(_wirePen, _wireBuf, 0, idx - 1, 0.35f);
+            g.DrawCurve(_wirePen, pts, 0.35f);
+            g.Restore(lightClip);
         }
 
         protected override void Dispose(bool disposing)
@@ -4217,8 +4622,312 @@ namespace SnowyWindows
     }
 
     // ========================================================================
-    // 10. KONTROL PANELİ VE RÜZGAR RADARI (WIND WIDGET + UYGULAMA İÇİ KAR)
+    // 10. MODERN FLUENT KONTROL PANELİ, ÖZEL BİLEŞENLER VE ÇİFT DİL (TR / EN)
     // ========================================================================
+    internal static class GraphicsExt
+    {
+        public static GraphicsPath CreateRoundedRect(RectangleF bounds, float radius)
+        {
+            GraphicsPath path = new GraphicsPath();
+            float d = radius * 2f;
+            if (d <= 0f)
+            {
+                path.AddRectangle(bounds);
+                return path;
+            }
+            path.AddArc(bounds.X, bounds.Y, d, d, 180, 90);
+            path.AddArc(bounds.Right - d, bounds.Y, d, d, 270, 90);
+            path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d, 0, 90);
+            path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+    }
+
+    internal sealed class ModernCard : Panel
+    {
+        public int CornerRadius { get; set; }
+        public Color FillColor { get; set; }
+        public Color BorderColor { get; set; }
+
+        public ModernCard()
+        {
+            DoubleBuffered = true;
+            CornerRadius = 12;
+            FillColor = Color.FromArgb(20, 30, 48);
+            BorderColor = Color.FromArgb(38, 52, 74);
+            BackColor = Color.FromArgb(11, 17, 30);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            e.Graphics.Clear(BackColor);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            RectangleF rect = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+            using (GraphicsPath path = GraphicsExt.CreateRoundedRect(rect, CornerRadius))
+            using (SolidBrush fill = new SolidBrush(FillColor))
+            using (Pen border = new Pen(BorderColor, 1f))
+            {
+                g.FillPath(fill, path);
+                g.DrawPath(border, path);
+            }
+        }
+    }
+
+    internal sealed class ModernButton : Control
+    {
+        private bool _hovered;
+        private bool _pressed;
+
+        public int CornerRadius { get; set; }
+        public Color FillColor { get; set; }
+        public Color BorderColor { get; set; }
+
+        public ModernButton()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+            DoubleBuffered = true;
+            CornerRadius = 8;
+            FillColor = Color.FromArgb(26, 38, 58);
+            BorderColor = Color.FromArgb(46, 62, 88);
+            ForeColor = Color.FromArgb(241, 245, 249);
+            BackColor = Color.Transparent;
+            Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold);
+            Cursor = Cursors.Hand;
+        }
+
+        protected override void OnTextChanged(EventArgs e) { Invalidate(); base.OnTextChanged(e); }
+        protected override void OnMouseEnter(EventArgs e) { _hovered = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { _hovered = false; _pressed = false; Invalidate(); base.OnMouseLeave(e); }
+
+        protected override void OnMouseDown(MouseEventArgs e) { if (e.Button == MouseButtons.Left) { _pressed = true; Invalidate(); } base.OnMouseDown(e); }
+        protected override void OnMouseUp(MouseEventArgs e) { _pressed = false; Invalidate(); base.OnMouseUp(e); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            Color bg = FillColor;
+            if (_pressed)
+                bg = Color.FromArgb(Math.Max(0, bg.R - 12), Math.Max(0, bg.G - 12), Math.Max(0, bg.B - 12));
+            else if (_hovered)
+                bg = Color.FromArgb(Math.Min(255, bg.R + 16), Math.Min(255, bg.G + 18), Math.Min(255, bg.B + 22));
+
+            RectangleF rect = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+            using (GraphicsPath path = GraphicsExt.CreateRoundedRect(rect, CornerRadius))
+            using (SolidBrush fill = new SolidBrush(bg))
+            using (Pen border = new Pen(_hovered ? Color.FromArgb(90, 120, 165) : BorderColor, 1f))
+            {
+                g.FillPath(fill, path);
+                g.DrawPath(border, path);
+            }
+
+            TextRenderer.DrawText(
+                g, Text, Font,
+                new Rectangle(4, 0, Width - 8, Height),
+                ForeColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+    }
+
+    internal sealed class ModernSlider : Control
+    {
+        private int _min = 0;
+        private int _max = 100;
+        private int _value = 50;
+        private bool _dragging;
+        private bool _hovered;
+
+        public int Minimum { get { return _min; } set { _min = value; if (_value < _min) _value = _min; Invalidate(); } }
+        public int Maximum { get { return _max; } set { _max = value; if (_value > _max) _value = _max; Invalidate(); } }
+        public int Value
+        {
+            get { return _value; }
+            set
+            {
+                int clamped = Math.Max(_min, Math.Min(_max, value));
+                if (clamped != _value)
+                {
+                    _value = clamped;
+                    Invalidate();
+                }
+            }
+        }
+
+        public event EventHandler Scroll;
+
+        public ModernSlider()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+            DoubleBuffered = true;
+            BackColor = Color.Transparent;
+            Size = new Size(272, 22);
+            Cursor = Cursors.Hand;
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { _hovered = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { _hovered = false; Invalidate(); base.OnMouseLeave(e); }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left)
+            {
+                _dragging = true;
+                UpdateFromX(e.X);
+            }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (_dragging) UpdateFromX(e.X);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            _dragging = false;
+            Invalidate();
+        }
+
+        private void UpdateFromX(int mx)
+        {
+            float pad = 8f;
+            float trackW = Math.Max(10f, Width - pad * 2f);
+            float t = Math.Max(0f, Math.Min(1f, (mx - pad) / trackW));
+            int nextVal = _min + (int)Math.Round(t * (_max - _min));
+            if (nextVal != _value)
+            {
+                _value = nextVal;
+                Invalidate();
+                if (Scroll != null) Scroll(this, EventArgs.Empty);
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            float pad = 8f;
+            float cy = Height * 0.5f;
+            float trackW = Math.Max(10f, Width - pad * 2f);
+            float trackH = 5f;
+            float ratio = (_max > _min) ? (float)(_value - _min) / (_max - _min) : 0f;
+            float thumbX = pad + ratio * trackW;
+
+            // Arka plan yolu
+            RectangleF bgRect = new RectangleF(pad, cy - trackH * 0.5f, trackW, trackH);
+            using (GraphicsPath bgPath = GraphicsExt.CreateRoundedRect(bgRect, trackH * 0.5f))
+            using (SolidBrush bgBrush = new SolidBrush(Color.FromArgb(30, 41, 59)))
+                g.FillPath(bgBrush, bgPath);
+
+            // Aktif dolgu yolu (Gradyan)
+            if (ratio > 0.005f)
+            {
+                float activeW = Math.Max(trackH, ratio * trackW);
+                RectangleF actRect = new RectangleF(pad, cy - trackH * 0.5f, activeW, trackH);
+                using (GraphicsPath actPath = GraphicsExt.CreateRoundedRect(actRect, trackH * 0.5f))
+                using (LinearGradientBrush grad = new LinearGradientBrush(
+                    actRect,
+                    Color.FromArgb(56, 189, 248),
+                    Color.FromArgb(59, 130, 246),
+                    LinearGradientMode.Horizontal))
+                {
+                    g.FillPath(grad, actPath);
+                }
+            }
+
+            // Başparmak (Thumb) & Hover halkası
+            float r = (_dragging || _hovered) ? 7.2f : 6.2f;
+            if (_dragging || _hovered)
+            {
+                using (SolidBrush halo = new SolidBrush(Color.FromArgb(55, 56, 189, 248)))
+                    g.FillEllipse(halo, thumbX - 10.5f, cy - 10.5f, 21f, 21f);
+            }
+            using (SolidBrush thumbBrush = new SolidBrush(Color.FromArgb(248, 250, 252)))
+            using (Pen thumbRing = new Pen(Color.FromArgb(56, 189, 248), 2f))
+            {
+                g.FillEllipse(thumbBrush, thumbX - r, cy - r, r * 2f, r * 2f);
+                g.DrawEllipse(thumbRing, thumbX - r, cy - r, r * 2f, r * 2f);
+            }
+        }
+    }
+
+    internal sealed class ModernToggle : Control
+    {
+        private bool _checked;
+        public bool Checked
+        {
+            get { return _checked; }
+            set { if (_checked != value) { _checked = value; Invalidate(); if (CheckedChanged != null) CheckedChanged(this, EventArgs.Empty); } }
+        }
+
+        public event EventHandler CheckedChanged;
+
+        public ModernToggle()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+            DoubleBuffered = true;
+            BackColor = Color.Transparent;
+            Size = new Size(272, 24);
+            Font = new Font("Segoe UI", 8.5f);
+            ForeColor = Color.FromArgb(203, 213, 225);
+            Cursor = Cursors.Hand;
+        }
+
+        protected override void OnTextChanged(EventArgs e) { Invalidate(); base.OnTextChanged(e); }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left)
+                Checked = !Checked;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            float sw = 36f;
+            float sh = 19f;
+            float sx = Width - sw - 2f;
+            float sy = (Height - sh) * 0.5f;
+
+            RectangleF pillRect = new RectangleF(sx, sy, sw, sh);
+            using (GraphicsPath pillPath = GraphicsExt.CreateRoundedRect(pillRect, sh * 0.5f))
+            using (SolidBrush pillBrush = new SolidBrush(_checked ? Color.FromArgb(14, 165, 233) : Color.FromArgb(51, 65, 85)))
+            {
+                g.FillPath(pillBrush, pillPath);
+            }
+
+            float knobSize = 13f;
+            float kx = _checked ? (sx + sw - knobSize - 3f) : (sx + 3f);
+            float ky = sy + (sh - knobSize) * 0.5f;
+            using (SolidBrush knobBrush = new SolidBrush(Color.White))
+                g.FillEllipse(knobBrush, kx, ky, knobSize, knobSize);
+
+            TextRenderer.DrawText(
+                g, Text, Font,
+                new Rectangle(0, 0, (int)sx - 8, Height),
+                ForeColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+    }
+
     internal sealed class WindRadarControl : Control
     {
         public float Nx { get; set; }
@@ -4227,8 +4936,11 @@ namespace SnowyWindows
 
         public WindRadarControl()
         {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
             DoubleBuffered = true;
-            Size = new Size(140, 140);
+            BackColor = Color.Transparent;
+            Size = new Size(116, 116);
             Cursor = Cursors.Cross;
             Nx = -0.22f;
             Ny = 0.08f;
@@ -4250,7 +4962,7 @@ namespace SnowyWindows
         {
             float cx = Width * 0.5f;
             float cy = Height * 0.5f;
-            float maxR = (Width * 0.5f) - 14f;
+            float maxR = (Width * 0.5f) - 12f;
             float dx = (mx - cx) / maxR;
             float dy = (my - cy) / maxR;
             float mag = (float)Math.Sqrt(dx * dx + dy * dy);
@@ -4270,61 +4982,92 @@ namespace SnowyWindows
         {
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Color.FromArgb(9, 13, 22));
-
-            using (SolidBrush dotBrush = new SolidBrush(Color.FromArgb(51, 65, 85)))
-            {
-                for (int x = 18; x < Width; x += 20)
-                {
-                    for (int y = 18; y < Height; y += 20)
-                        g.FillEllipse(dotBrush, x - 1.2f, y - 1.2f, 2.4f, 2.4f);
-                }
-            }
 
             float cx = Width * 0.5f;
             float cy = Height * 0.5f;
-            float maxR = (Width * 0.5f) - 14f;
-            float tx = cx + Nx * maxR;
-            float ty = cy + Ny * maxR;
+            float maxR = (Width * 0.5f) - 10f;
 
-            using (SolidBrush centerBrush = new SolidBrush(Color.FromArgb(100, 116, 139)))
+            // Dairesel modern radar arka planı
+            RectangleF outerCircle = new RectangleF(cx - maxR, cy - maxR, maxR * 2f, maxR * 2f);
+            using (SolidBrush bgBrush = new SolidBrush(Color.FromArgb(12, 19, 34)))
+                g.FillEllipse(bgBrush, outerCircle);
+
+            using (Pen ringPen = new Pen(Color.FromArgb(40, 56, 80), 1f))
+            {
+                g.DrawEllipse(ringPen, outerCircle);
+                g.DrawEllipse(ringPen, cx - maxR * 0.66f, cy - maxR * 0.66f, maxR * 1.32f, maxR * 1.32f);
+                g.DrawEllipse(ringPen, cx - maxR * 0.33f, cy - maxR * 0.33f, maxR * 0.66f, maxR * 0.66f);
+                g.DrawLine(ringPen, cx - maxR, cy, cx + maxR, cy);
+                g.DrawLine(ringPen, cx, cy - maxR, cx, cy + maxR);
+            }
+
+            float tx = cx + Nx * (maxR - 4f);
+            float ty = cy + Ny * (maxR - 4f);
+
+            using (SolidBrush centerBrush = new SolidBrush(Color.FromArgb(148, 163, 184)))
                 g.FillEllipse(centerBrush, cx - 3f, cy - 3f, 6f, 6f);
 
-            using (Pen arrowPen = new Pen(Color.FromArgb(96, 165, 250), 3.2f))
+            using (Pen arrowGlow = new Pen(Color.FromArgb(65, 56, 189, 248), 6f) { StartCap = LineCap.Round })
+                g.DrawLine(arrowGlow, cx, cy, tx, ty);
+
+            using (Pen arrowPen = new Pen(Color.FromArgb(96, 165, 250), 2.8f))
             {
                 arrowPen.StartCap = LineCap.Round;
                 arrowPen.CustomEndCap = new AdjustableArrowCap(4.5f, 5.5f, true);
                 g.DrawLine(arrowPen, cx, cy, tx, ty);
             }
-
-            using (Pen borderPen = new Pen(Color.FromArgb(51, 65, 85), 1f))
-                g.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
         }
     }
 
     internal sealed class ControlPanelForm : Form
     {
-        // Tüm koordinatlar 96 DPI içindir; AutoScaleMode.Dpi ile yüksek DPI'da otomatik ölçeklenir.
-        private const int L = 22;   // Sol kenar boşluğu
-        private const int W = 272;  // İçerik genişliği
+        private const int L = 18;
+        private const int W = 280;
 
         private readonly SnowOverlayForm _overlay;
         private readonly WindRadarControl _windRadar;
+        private readonly Label _titleLbl;
+        private readonly Label _windHdr;
+        private readonly Label _windHint;
         private readonly Label _windValueLabel;
         private readonly Label _modeBadge;
-        private readonly Button _interactBtn;
-        private readonly Button _lightsBtn;
-        private readonly Button _iciclesBtn;
-        private readonly Button _multiMonBtn;
-        private readonly Button _pauseBtn;
-        private readonly Button _perfBtn;
-        private readonly CheckBox _autoPauseCheck;
-        private readonly NotifyIcon _trayIcon;
+        private readonly Label _footerHint;
 
-        private TrackBar _intensitySlider;
-        private TrackBar _opacitySlider;
-        private TrackBar _pileSlider;
-        private TrackBar _meltSlider;
+        private readonly ModernButton _langBtn;
+        private readonly ModernButton _resetBtn;
+        private readonly ModernButton _lightBtn;
+        private readonly ModernButton _normalBtn;
+        private readonly ModernButton _blizzardBtn;
+        private readonly ModernButton _interactBtn;
+        private readonly ModernButton _ballBtn;
+        private readonly ModernButton _plowBtn;
+        private readonly ModernButton _removePlowBtn;
+        private readonly ModernButton _lightsBtn;
+        private readonly ModernButton _clearBtn;
+        private readonly ModernButton _pauseBtn;
+        private readonly ModernButton _perfBtn;
+        private readonly ModernButton _iciclesBtn;
+        private readonly ModernButton _fireBtn;
+        private readonly ModernButton _removeFireBtn;
+        private readonly ModernButton _cableCarBtn;
+        private readonly ModernButton _multiMonBtn;
+        private readonly ModernToggle _autoPauseToggle;
+
+        private readonly NotifyIcon _trayIcon;
+        private readonly MenuItem _trayShowItem;
+        private readonly MenuItem _trayInteractItem;
+        private readonly MenuItem _trayPauseItem;
+        private readonly MenuItem _trayClearItem;
+        private readonly MenuItem _trayExitItem;
+
+        private ModernSlider _intensitySlider;
+        private ModernSlider _opacitySlider;
+        private ModernSlider _pileSlider;
+        private ModernSlider _meltSlider;
+        private Label _densityCapLabel;
+        private Label _opacityCapLabel;
+        private Label _pileCapLabel;
+        private Label _meltCapLabel;
         private Label _densityValLabel;
         private Label _opacityValLabel;
         private Label _pileValLabel;
@@ -4341,71 +5084,135 @@ namespace SnowyWindows
             AutoScaleMode = AutoScaleMode.Dpi;
 
             Text = "Snowy for Windows";
-            ClientSize = new Size(316, 732);
-            FormBorderStyle = FormBorderStyle.FixedSingle;
-            MaximizeBox = false;
+            ClientSize = new Size(316, 774);
+            FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.Manual;
             Location = new Point(36, 48);
-            BackColor = Color.FromArgb(15, 23, 42);
+            BackColor = Color.FromArgb(11, 17, 30);
             ForeColor = Color.FromArgb(248, 250, 252);
             TopMost = true;
             Font = new Font("Segoe UI", 9f, FontStyle.Regular);
-            AutoScroll = true; // Çok küçük ekranlarda panel kaydırılabilir kalır
+            AutoScroll = true;
 
-            Label titleLbl = new Label
+            // ---- Özel Sürüklenebilir Modern Başlık Çubuğu ----
+            Panel headerBar = new Panel
             {
-                Text = "❄️ Snowy Windows",
-                Font = new Font("Segoe UI Semibold", 12f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(248, 250, 252),
-                Location = new Point(L, 10),
-                AutoSize = true
+                Location = new Point(0, 0),
+                Size = new Size(316, 42),
+                BackColor = Color.FromArgb(15, 23, 42)
             };
-            Controls.Add(titleLbl);
+            headerBar.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    NativeMethods.ReleaseCapture();
+                    NativeMethods.SendMessage(Handle, NativeMethods.WM_NCLBUTTONDOWN, NativeMethods.HT_CAPTION, 0);
+                }
+            };
+            Controls.Add(headerBar);
+
+            _titleLbl = new Label
+            {
+                Text = "❄️ Snowy",
+                Font = new Font("Segoe UI Semibold", 11f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(248, 250, 252),
+                Location = new Point(14, 10),
+                AutoSize = true,
+                BackColor = Color.Transparent
+            };
+            _titleLbl.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    NativeMethods.ReleaseCapture();
+                    NativeMethods.SendMessage(Handle, NativeMethods.WM_NCLBUTTONDOWN, NativeMethods.HT_CAPTION, 0);
+                }
+            };
+            headerBar.Controls.Add(_titleLbl);
 
             _modeBadge = new Label
             {
-                Text = "Geçirgen Mod",
-                Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+                Font = new Font("Segoe UI", 7.6f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(56, 189, 248),
-                BackColor = Color.FromArgb(30, 41, 59),
-                Location = new Point(L + W - 96, 12),
-                Size = new Size(96, 20),
+                BackColor = Color.FromArgb(24, 38, 60),
+                Location = new Point(108, 11),
+                Size = new Size(88, 20),
                 TextAlign = ContentAlignment.MiddleCenter
             };
-            Controls.Add(_modeBadge);
+            headerBar.Controls.Add(_modeBadge);
 
-            // ---- Rüzgar kartı ----
-            Panel windCard = new Panel
+            // Dil Değiştirme Tuşu (🌐 TR / EN)
+            _langBtn = new ModernButton
             {
-                Location = new Point(L, 38),
-                Size = new Size(W, 180),
-                BackColor = Color.FromArgb(30, 41, 59)
+                Location = new Point(202, 9),
+                Size = new Size(52, 24),
+                CornerRadius = 7,
+                FillColor = Color.FromArgb(26, 40, 62),
+                BorderColor = Color.FromArgb(56, 189, 248),
+                ForeColor = Color.FromArgb(186, 230, 253),
+                Font = new Font("Segoe UI Semibold", 7.6f, FontStyle.Bold)
+            };
+            _langBtn.Click += (s, e) =>
+            {
+                _overlay.IsEnglish = !_overlay.IsEnglish;
+                ApplyLanguage();
+            };
+            headerBar.Controls.Add(_langBtn);
+
+            ModernButton minBtn = new ModernButton
+            {
+                Text = "—",
+                Location = new Point(259, 9),
+                Size = new Size(24, 24),
+                CornerRadius = 6,
+                FillColor = Color.FromArgb(24, 35, 54),
+                BorderColor = Color.FromArgb(40, 54, 78),
+                Font = new Font("Segoe UI", 8f, FontStyle.Bold)
+            };
+            minBtn.Click += (s, e) => { WindowState = FormWindowState.Minimized; };
+            headerBar.Controls.Add(minBtn);
+
+            ModernButton closeBtn = new ModernButton
+            {
+                Text = "✕",
+                Location = new Point(286, 9),
+                Size = new Size(24, 24),
+                CornerRadius = 6,
+                FillColor = Color.FromArgb(55, 24, 32),
+                BorderColor = Color.FromArgb(95, 40, 50),
+                ForeColor = Color.FromArgb(252, 165, 165),
+                Font = new Font("Segoe UI", 8f, FontStyle.Bold)
+            };
+            closeBtn.Click += (s, e) => { Close(); };
+            headerBar.Controls.Add(closeBtn);
+
+            // ---- Rüzgar Kartı ----
+            ModernCard windCard = new ModernCard
+            {
+                Location = new Point(L, 50),
+                Size = new Size(W, 174)
             };
             Controls.Add(windCard);
 
-            Label windHdr = new Label
+            _windHdr = new Label
             {
-                Text = "💨 Rüzgar",
-                Font = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold),
+                Font = new Font("Segoe UI Semibold", 9.2f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(226, 232, 240),
-                Location = new Point(12, 8),
+                BackColor = Color.FromArgb(20, 30, 48),
+                Location = new Point(12, 9),
                 AutoSize = true
             };
-            windCard.Controls.Add(windHdr);
+            windCard.Controls.Add(_windHdr);
 
-            Button resetBtn = new Button
+            _resetBtn = new ModernButton
             {
-                Text = "Reset",
-                Font = new Font("Segoe UI", 8f),
-                ForeColor = Color.White,
-                BackColor = Color.FromArgb(51, 65, 85),
-                FlatStyle = FlatStyle.Flat,
-                Location = new Point(W - 66, 6),
-                Size = new Size(54, 22),
-                Cursor = Cursors.Hand
+                Location = new Point(W - 64, 7),
+                Size = new Size(52, 22),
+                CornerRadius = 6,
+                FillColor = Color.FromArgb(32, 46, 70),
+                Font = new Font("Segoe UI", 7.8f, FontStyle.Bold)
             };
-            resetBtn.FlatAppearance.BorderSize = 0;
-            resetBtn.Click += (s, e) =>
+            _resetBtn.Click += (s, e) =>
             {
                 _windRadar.Nx = 0f;
                 _windRadar.Ny = 0f;
@@ -4414,12 +5221,12 @@ namespace SnowyWindows
                 _windRadar.Invalidate();
                 UpdateWindStatus(0f, 0f);
             };
-            windCard.Controls.Add(resetBtn);
+            windCard.Controls.Add(_resetBtn);
 
             _windRadar = new WindRadarControl
             {
                 Size = new Size(112, 112),
-                Location = new Point((W - 112) / 2, 30),
+                Location = new Point((W - 112) / 2, 26),
                 Nx = _overlay.WindNx,
                 Ny = _overlay.WindNy
             };
@@ -4435,27 +5242,28 @@ namespace SnowyWindows
             _windValueLabel = new Label
             {
                 Text = "",
-                Font = new Font("Consolas", 10f, FontStyle.Bold),
+                Font = new Font("Consolas", 9.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(147, 197, 253),
-                Location = new Point(12, 146),
-                Size = new Size(W - 24, 18),
+                BackColor = Color.FromArgb(20, 30, 48),
+                Location = new Point(12, 139),
+                Size = new Size(W - 24, 16),
                 TextAlign = ContentAlignment.MiddleCenter
             };
             windCard.Controls.Add(_windValueLabel);
 
-            Label windHint = new Label
+            _windHint = new Label
             {
-                Text = "Merkezden sürükleyerek rüzgar yönünü ayarlayın",
-                Font = new Font("Segoe UI", 7.2f),
+                Font = new Font("Segoe UI", 7.1f),
                 ForeColor = Color.FromArgb(148, 163, 184),
-                Location = new Point(12, 164),
+                BackColor = Color.FromArgb(20, 30, 48),
+                Location = new Point(12, 155),
                 Size = new Size(W - 24, 14),
                 TextAlign = ContentAlignment.MiddleCenter
             };
-            windCard.Controls.Add(windHint);
+            windCard.Controls.Add(_windHint);
 
-            // ---- Kaydırıcılar (etiket üstte, kaydırıcı altta; her biri tam genişlikte) ----
-            _intensitySlider = AddSliderRow("Kar Yoğunluğu", 228, 80, 1200, _overlay.ActiveSnowCount, out _densityValLabel);
+            // ---- Modern Kaydırıcılar ----
+            _intensitySlider = AddSliderRow(232, 80, 1200, _overlay.ActiveSnowCount, out _densityCapLabel, out _densityValLabel);
             _densityValLabel.Text = _intensitySlider.Value.ToString();
             _intensitySlider.Scroll += (s, e) =>
             {
@@ -4463,8 +5271,7 @@ namespace SnowyWindows
                 _densityValLabel.Text = _intensitySlider.Value.ToString();
             };
 
-            _opacitySlider = AddSliderRow("Uygulama İçi Kar Yoğunluğu", 272, 0, 100,
-                (int)Math.Round(_overlay.WindowInteriorSnowOpacity * 100f), out _opacityValLabel);
+            _opacitySlider = AddSliderRow(272, 0, 100, (int)Math.Round(_overlay.WindowInteriorSnowOpacity * 100f), out _opacityCapLabel, out _opacityValLabel);
             _opacityValLabel.Text = "%" + _opacitySlider.Value;
             _opacitySlider.Scroll += (s, e) =>
             {
@@ -4472,7 +5279,7 @@ namespace SnowyWindows
                 _opacityValLabel.Text = "%" + _opacitySlider.Value;
             };
 
-            _pileSlider = AddSliderRow("Maks. Kar Kalınlığı", 316, 10, 80, (int)Math.Round(_overlay.MaxPileHeight), out _pileValLabel);
+            _pileSlider = AddSliderRow(312, 10, 80, (int)Math.Round(_overlay.MaxPileHeight), out _pileCapLabel, out _pileValLabel);
             _pileValLabel.Text = _pileSlider.Value + " px";
             _pileSlider.Scroll += (s, e) =>
             {
@@ -4480,66 +5287,88 @@ namespace SnowyWindows
                 _pileValLabel.Text = _pileSlider.Value + " px";
             };
 
-            _meltSlider = AddSliderRow("Erime Hızı", 360, 0, 100, (int)Math.Round(_overlay.MeltRate / MeltScale), out _meltValLabel);
-            SyncMeltLabel();
+            _meltSlider = AddSliderRow(352, 0, 100, (int)Math.Round(_overlay.MeltRate / MeltScale), out _meltCapLabel, out _meltValLabel);
             _meltSlider.Scroll += (s, e) =>
             {
                 _overlay.MeltRate = _meltSlider.Value * MeltScale;
                 SyncMeltLabel();
             };
 
-            // ---- Hava durumu hazır ayarları ----
-            Button lightBtn = CreateStyledButton("🌤 Hafif", new Point(L, 406), new Size(86, 28), Color.FromArgb(30, 41, 59));
-            lightBtn.Click += (s, e) => ApplyPreset(220, -0.12f, 0.05f, 0.12f, false);
-            Controls.Add(lightBtn);
+            // ---- Hava Durumu Hazır Ayarları ----
+            _lightBtn = CreateModernButton(new Point(L, 396), new Size(88, 28), Color.FromArgb(24, 35, 54));
+            _lightBtn.Click += (s, e) => ApplyPreset(220, -0.12f, 0.05f, 0.12f, false);
+            Controls.Add(_lightBtn);
 
-            Button normalBtn = CreateStyledButton("❄ Normal", new Point(L + 93, 406), new Size(86, 28), Color.FromArgb(30, 41, 59));
-            normalBtn.Click += (s, e) => ApplyPreset(420, -0.22f, 0.08f, 0.22f, false);
-            Controls.Add(normalBtn);
+            _normalBtn = CreateModernButton(new Point(L + 96, 396), new Size(88, 28), Color.FromArgb(24, 35, 54));
+            _normalBtn.Click += (s, e) => ApplyPreset(420, -0.22f, 0.08f, 0.22f, false);
+            Controls.Add(_normalBtn);
 
-            Button blizzardBtn = CreateStyledButton("🌪 Tipi", new Point(L + 186, 406), new Size(86, 28), Color.FromArgb(30, 41, 59));
-            blizzardBtn.Click += (s, e) => ApplyPreset(1150, -0.82f, 0.52f, 0.65f, true);
-            Controls.Add(blizzardBtn);
+            _blizzardBtn = CreateModernButton(new Point(L + 192, 396), new Size(88, 28), Color.FromArgb(24, 35, 54));
+            _blizzardBtn.Click += (s, e) => ApplyPreset(1150, -0.82f, 0.52f, 0.65f, true);
+            Controls.Add(_blizzardBtn);
 
-            // ---- Etkileşim modu ----
-            _interactBtn = CreateStyledButton(
-                "🖱️ Etkileşim Modunu Aç (F8)",
-                new Point(L, 442),
-                new Size(W, 34),
-                Color.FromArgb(2, 132, 199));
+            // ---- Etkileşim Modu ----
+            _interactBtn = CreateModernButton(new Point(L, 432), new Size(W, 34), Color.FromArgb(2, 132, 199));
+            _interactBtn.BorderColor = Color.FromArgb(56, 189, 248);
             _interactBtn.Click += (s, e) => _overlay.ToggleInteractiveMode();
             Controls.Add(_interactBtn);
 
-            // ---- Buton satırları ----
-            Button ballBtn = CreateStyledButton("⚪ Kartopu Ekle", new Point(L, 482), new Size(132, 32), Color.FromArgb(30, 41, 59));
-            ballBtn.Click += (s, e) => _overlay.SpawnSingleSnowballOnActiveWindow();
-            Controls.Add(ballBtn);
+            // ---- Araç & Efekt Butonları ----
+            _ballBtn = CreateModernButton(new Point(L, 472), new Size(136, 30), Color.FromArgb(24, 35, 54));
+            _ballBtn.Click += (s, e) => _overlay.SpawnSingleSnowballOnActiveWindow();
+            Controls.Add(_ballBtn);
 
-            Button plowBtn = CreateStyledButton("🚜 Kürek Ekle", new Point(L + 140, 482), new Size(132, 32), Color.FromArgb(202, 138, 4));
-            plowBtn.Click += (s, e) => _overlay.SpawnSnowPlow();
-            Controls.Add(plowBtn);
+            _clearBtn = CreateModernButton(new Point(L + 144, 472), new Size(136, 30), Color.FromArgb(24, 35, 54));
+            _clearBtn.ForeColor = Color.FromArgb(252, 165, 165);
+            _clearBtn.Click += (s, e) => _overlay.ClearAllSnow();
+            Controls.Add(_clearBtn);
 
-            _lightsBtn = CreateStyledButton(
-                _overlay.FairyLightsEnabled ? "🎄 Işıklar: Açık" : "🎄 Işıklar: Kapalı",
-                new Point(L, 520), new Size(132, 30), Color.FromArgb(30, 41, 59));
+            _plowBtn = CreateModernButton(new Point(L, 508), new Size(136, 30), Color.FromArgb(161, 98, 7));
+            _plowBtn.BorderColor = Color.FromArgb(234, 179, 8);
+            _plowBtn.Click += (s, e) => _overlay.SpawnSnowPlow();
+            Controls.Add(_plowBtn);
+
+            _removePlowBtn = CreateModernButton(new Point(L + 144, 508), new Size(136, 30), Color.FromArgb(52, 34, 24));
+            _removePlowBtn.BorderColor = Color.FromArgb(161, 98, 7);
+            _removePlowBtn.ForeColor = Color.FromArgb(254, 240, 138);
+            _removePlowBtn.Click += (s, e) => _overlay.RemoveLastSnowPlow();
+            Controls.Add(_removePlowBtn);
+
+            _fireBtn = CreateModernButton(new Point(L, 544), new Size(136, 30), Color.FromArgb(124, 45, 18));
+            _fireBtn.BorderColor = Color.FromArgb(234, 88, 12);
+            _fireBtn.ForeColor = Color.FromArgb(254, 215, 170);
+            _fireBtn.Click += (s, e) => _overlay.SpawnCampfire();
+            Controls.Add(_fireBtn);
+
+            _removeFireBtn = CreateModernButton(new Point(L + 144, 544), new Size(136, 30), Color.FromArgb(55, 24, 30));
+            _removeFireBtn.BorderColor = Color.FromArgb(154, 52, 18);
+            _removeFireBtn.ForeColor = Color.FromArgb(253, 186, 116);
+            _removeFireBtn.Click += (s, e) => _overlay.RemoveLastCampfire();
+            Controls.Add(_removeFireBtn);
+
+            _lightsBtn = CreateModernButton(new Point(L, 580), new Size(136, 30), Color.FromArgb(24, 35, 54));
             _lightsBtn.ForeColor = Color.FromArgb(253, 224, 71);
             _lightsBtn.Click += (s, e) =>
             {
                 _overlay.FairyLightsEnabled = !_overlay.FairyLightsEnabled;
-                _lightsBtn.Text = _overlay.FairyLightsEnabled ? "🎄 Işıklar: Açık" : "🎄 Işıklar: Kapalı";
+                SyncLightsButton();
             };
             Controls.Add(_lightsBtn);
 
-            Button clearBtn = CreateStyledButton("🧹 Temizle (F9)", new Point(L + 140, 520), new Size(132, 30), Color.FromArgb(30, 41, 59));
-            clearBtn.ForeColor = Color.FromArgb(252, 165, 165);
-            clearBtn.Click += (s, e) => _overlay.ClearAllSnow();
-            Controls.Add(clearBtn);
+            _iciclesBtn = CreateModernButton(new Point(L + 144, 580), new Size(136, 30), Color.FromArgb(24, 35, 54));
+            _iciclesBtn.ForeColor = Color.FromArgb(186, 230, 253);
+            _iciclesBtn.Click += (s, e) =>
+            {
+                _overlay.IciclesEnabled = !_overlay.IciclesEnabled;
+                SyncIciclesButton();
+            };
+            Controls.Add(_iciclesBtn);
 
-            _pauseBtn = CreateStyledButton("⏸ Duraklat (F7)", new Point(L, 556), new Size(132, 30), Color.FromArgb(30, 41, 59));
+            _pauseBtn = CreateModernButton(new Point(L, 616), new Size(136, 30), Color.FromArgb(24, 35, 54));
             _pauseBtn.Click += (s, e) => _overlay.TogglePause();
             Controls.Add(_pauseBtn);
 
-            _perfBtn = CreateStyledButton("⚡ Performans", new Point(L + 140, 556), new Size(132, 30), Color.FromArgb(30, 41, 59));
+            _perfBtn = CreateModernButton(new Point(L + 144, 616), new Size(136, 30), Color.FromArgb(24, 35, 54));
             _perfBtn.Click += (s, e) =>
             {
                 _overlay.PerformanceMode = !_overlay.PerformanceMode;
@@ -4547,26 +5376,16 @@ namespace SnowyWindows
             };
             Controls.Add(_perfBtn);
 
-            _iciclesBtn = CreateStyledButton(
-                _overlay.IciclesEnabled ? "🧊 Sarkıtlar: Açık" : "🧊 Sarkıtlar: Kapalı",
-                new Point(L, 592), new Size(132, 30), Color.FromArgb(30, 41, 59));
-            _iciclesBtn.ForeColor = Color.FromArgb(186, 230, 253);
-            _iciclesBtn.Click += (s, e) =>
+            // İki Uygulama Arası Teleferik Aç/Kapat Butonu
+            _cableCarBtn = CreateModernButton(new Point(L, 652), new Size(W, 30), Color.FromArgb(24, 35, 54));
+            _cableCarBtn.Click += (s, e) =>
             {
-                _overlay.IciclesEnabled = !_overlay.IciclesEnabled;
-                _iciclesBtn.Text = _overlay.IciclesEnabled ? "🧊 Sarkıtlar: Açık" : "🧊 Sarkıtlar: Kapalı";
+                _overlay.CableCarEnabled = !_overlay.CableCarEnabled;
+                SyncCableCarButton();
             };
-            Controls.Add(_iciclesBtn);
+            Controls.Add(_cableCarBtn);
 
-            Button fireBtn = CreateStyledButton("🔥 Kamp Ateşi", new Point(L + 140, 592), new Size(132, 30), Color.FromArgb(154, 52, 18));
-            fireBtn.ForeColor = Color.FromArgb(254, 215, 170);
-            fireBtn.Click += (s, e) => _overlay.SpawnCampfire();
-            Controls.Add(fireBtn);
-
-            // Çoklu Ekran Seçici (Kapalıyken yalnızca ana ekran, açıkken en fazla 3 ekran)
-            _multiMonBtn = CreateStyledButton(
-                "🖥️ Çoklu Ekran: Kapalı (Ana Ekran)",
-                new Point(L, 628), new Size(W, 32), Color.FromArgb(30, 41, 59));
+            _multiMonBtn = CreateModernButton(new Point(L, 688), new Size(W, 30), Color.FromArgb(24, 35, 54));
             _multiMonBtn.Click += (s, e) =>
             {
                 _overlay.SetMultiMonitorMode(!_overlay.MultiMonitorEnabled);
@@ -4574,57 +5393,55 @@ namespace SnowyWindows
             };
             Controls.Add(_multiMonBtn);
 
-            _autoPauseCheck = new CheckBox
+            _autoPauseToggle = new ModernToggle
             {
-                Text = "Tam ekranda otomatik duraklat",
-                Font = new Font("Segoe UI", 8.2f),
-                ForeColor = Color.FromArgb(203, 213, 225),
-                Location = new Point(L, 666),
+                Location = new Point(L, 724),
                 Size = new Size(W, 22),
                 Checked = _overlay.AutoPauseOnFullscreen
             };
-            _autoPauseCheck.CheckedChanged += (s, e) => { _overlay.AutoPauseOnFullscreen = _autoPauseCheck.Checked; };
-            Controls.Add(_autoPauseCheck);
+            _autoPauseToggle.CheckedChanged += (s, e) => { _overlay.AutoPauseOnFullscreen = _autoPauseToggle.Checked; };
+            Controls.Add(_autoPauseToggle);
 
-            Label footerHint = new Label
+            _footerHint = new Label
             {
-                Text = "F8 modunda: Boşlukta veya karda sürükleyip kartopu fırlat (⛄ vur!), 3 kartopunu üst üste koyup ⛄ yap, 🚜 ve 🔥 taşı!",
-                Font = new Font("Segoe UI", 7.4f),
-                ForeColor = Color.FromArgb(148, 163, 184),
-                Location = new Point(L, 690),
-                Size = new Size(W, 36),
+                Font = new Font("Segoe UI", 7.2f),
+                ForeColor = Color.FromArgb(100, 116, 139),
+                Location = new Point(L, 748),
+                Size = new Size(W, 24),
                 TextAlign = ContentAlignment.TopCenter
             };
-            Controls.Add(footerHint);
+            Controls.Add(_footerHint);
 
             _overlay.OnInteractiveModeChanged += SyncInteractiveBadge;
             _overlay.OnPauseChanged += SyncPauseButton;
 
-            UpdateWindStatus(_overlay.WindNx, _overlay.WindNy);
-            SyncPerfButton();
-            SyncPauseButton();
-            SyncInteractiveBadge();
-            SyncMultiMonitorButton();
-
-            // Uygulama Pencere ve Sistem Tepsisi (System Tray) Kardan Adam İkonu
+            // Uygulama Pencere ve Sistem Tepsisi (System Tray) İkonu
             Icon customAppIcon = AppIconGenerator.CreateRuntimeIcon();
             this.Icon = customAppIcon;
 
             _trayIcon = new NotifyIcon
             {
                 Icon = customAppIcon,
-                Text = "Snowy Windows (C#)",
+                Text = "Snowy for Windows",
                 Visible = true
             };
             ContextMenu trayMenu = new ContextMenu();
-            trayMenu.MenuItems.Add("Kontrol Panelini Göster", (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); });
-            trayMenu.MenuItems.Add("Etkileşim Modu Aç/Kapat (F8)", (s, e) => _overlay.ToggleInteractiveMode());
-            trayMenu.MenuItems.Add("Duraklat / Devam (F7)", (s, e) => _overlay.TogglePause());
-            trayMenu.MenuItems.Add("Karları Temizle (F9)", (s, e) => _overlay.ClearAllSnow());
+            _trayShowItem = new MenuItem("", (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); });
+            _trayInteractItem = new MenuItem("", (s, e) => _overlay.ToggleInteractiveMode());
+            _trayPauseItem = new MenuItem("", (s, e) => _overlay.TogglePause());
+            _trayClearItem = new MenuItem("", (s, e) => _overlay.ClearAllSnow());
+            _trayExitItem = new MenuItem("", (s, e) => Application.Exit());
+            trayMenu.MenuItems.Add(_trayShowItem);
+            trayMenu.MenuItems.Add(_trayInteractItem);
+            trayMenu.MenuItems.Add(_trayPauseItem);
+            trayMenu.MenuItems.Add(_trayClearItem);
             trayMenu.MenuItems.Add("-");
-            trayMenu.MenuItems.Add("Çıkış", (s, e) => Application.Exit());
+            trayMenu.MenuItems.Add(_trayExitItem);
             _trayIcon.ContextMenu = trayMenu;
             _trayIcon.DoubleClick += (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); };
+
+            ApplyLanguage();
+            UpdateWindStatus(_overlay.WindNx, _overlay.WindNy);
 
             FormClosing += (s, e) =>
             {
@@ -4637,10 +5454,39 @@ namespace SnowyWindows
             ResumeLayout(true);
         }
 
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ClassStyle |= 0x00020000; // CS_DROPSHADOW
+                return cp;
+            }
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            try
+            {
+                int dark = 1;
+                NativeMethods.DwmSetWindowAttribute(Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+                int corner = NativeMethods.DWMWCP_ROUND;
+                NativeMethods.DwmSetWindowAttribute(Handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
+            }
+            catch { }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            using (Pen borderPen = new Pen(Color.FromArgb(38, 52, 74), 1f))
+                e.Graphics.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
+        }
+
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
-            // DPI ölçeklemesinden sonra panel ekrandan taşıyorsa yüksekliği sığdır (AutoScroll devreye girer)
             Rectangle wa = Screen.FromControl(this).WorkingArea;
             int maxH = wa.Height - 20;
             if (Height > maxH) Height = maxH;
@@ -4648,21 +5494,66 @@ namespace SnowyWindows
             Top = wa.Top + 10;
         }
 
-        private TrackBar AddSliderRow(string caption, int y, int min, int max, int value, out Label valueLabel)
+        private string Tr(string tr, string en)
         {
-            Label cap = new Label
+            return _overlay.IsEnglish ? en : tr;
+        }
+
+        private void ApplyLanguage()
+        {
+            _langBtn.Text = _overlay.IsEnglish ? "🌐 EN" : "🌐 TR";
+            _windHdr.Text = Tr("💨 Rüzgar", "💨 Wind");
+            _resetBtn.Text = Tr("Sıfırla", "Reset");
+            _windHint.Text = Tr("Merkezden sürükleyerek yönü ayarlayın", "Drag from center to set wind vector");
+
+            _densityCapLabel.Text = Tr("Kar Yoğunluğu", "Snow Density");
+            _opacityCapLabel.Text = Tr("Uygulama İçi Kar", "Window Snow Opacity");
+            _pileCapLabel.Text = Tr("Maks. Kar Kalınlığı", "Max Pile Thickness");
+            _meltCapLabel.Text = Tr("Erime Hızı", "Melt Speed");
+
+            _lightBtn.Text = Tr("🌤 Hafif", "🌤 Light");
+            _normalBtn.Text = Tr("❄ Normal", "❄ Normal");
+            _blizzardBtn.Text = Tr("🌪 Tipi", "🌪 Blizzard");
+
+            _ballBtn.Text = Tr("⚪ Kartopu Ekle", "⚪ Add Snowball");
+            _clearBtn.Text = Tr("🧹 Temizle (F9)", "🧹 Clear (F9)");
+            _plowBtn.Text = Tr("🚜 Kürek Ekle", "🚜 Add Plow");
+            _removePlowBtn.Text = Tr("🗑 Kürek Sil", "🗑 Remove Plow");
+            _fireBtn.Text = Tr("🔥 Kamp Ateşi", "🔥 Add Campfire");
+            _removeFireBtn.Text = Tr("🗑 Ateş Sil", "🗑 Remove Fire");
+            _autoPauseToggle.Text = Tr("Tam ekranda otomatik duraklat", "Auto-pause in fullscreen");
+            _footerHint.Text = Tr("F8: Kartopu at (⛄ vur) / 3 top = ⛄ / 🚜 & 🔥 fırlat", "F8: Throw snowballs (hit ⛄) / 3 balls = ⛄ / fling 🚜 & 🔥");
+
+            _trayShowItem.Text = Tr("Kontrol Panelini Göster", "Show Control Panel");
+            _trayInteractItem.Text = Tr("Etkileşim Modu (F8)", "Interactive Mode (F8)");
+            _trayPauseItem.Text = Tr("Duraklat / Devam (F7)", "Pause / Resume (F7)");
+            _trayClearItem.Text = Tr("Karları Temizle (F9)", "Clear Snow (F9)");
+            _trayExitItem.Text = Tr("Çıkış", "Exit");
+
+            SyncMeltLabel();
+            SyncLightsButton();
+            SyncIciclesButton();
+            SyncCableCarButton();
+            SyncPerfButton();
+            SyncPauseButton();
+            SyncInteractiveBadge();
+            SyncMultiMonitorButton();
+        }
+
+        private ModernSlider AddSliderRow(int y, int min, int max, int value, out Label capLabel, out Label valueLabel)
+        {
+            capLabel = new Label
             {
-                Text = caption,
-                Font = new Font("Segoe UI", 8.5f),
+                Font = new Font("Segoe UI", 8.2f),
                 ForeColor = Color.FromArgb(203, 213, 225),
                 Location = new Point(L, y),
                 AutoSize = true
             };
-            Controls.Add(cap);
+            Controls.Add(capLabel);
 
             valueLabel = new Label
             {
-                Font = new Font("Consolas", 8.5f, FontStyle.Bold),
+                Font = new Font("Consolas", 8.2f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(56, 189, 248),
                 Location = new Point(L + W - 90, y),
                 Size = new Size(90, 16),
@@ -4670,24 +5561,21 @@ namespace SnowyWindows
             };
             Controls.Add(valueLabel);
 
-            TrackBar tb = new TrackBar
+            ModernSlider sl = new ModernSlider
             {
-                AutoSize = false, // Aksi halde sistem yüksekliği büyütüp alttaki öğelerin üstüne biner
                 Minimum = min,
                 Maximum = max,
                 Value = Math.Max(min, Math.Min(max, value)),
-                TickStyle = TickStyle.None,
-                Location = new Point(L - 4, y + 16),
-                Size = new Size(W + 8, 26),
-                BackColor = Color.FromArgb(15, 23, 42)
+                Location = new Point(L, y + 16),
+                Size = new Size(W, 20)
             };
-            Controls.Add(tb);
-            return tb;
+            Controls.Add(sl);
+            return sl;
         }
 
         private void SyncMeltLabel()
         {
-            _meltValLabel.Text = _meltSlider.Value == 0 ? "Kapalı" : "%" + _meltSlider.Value;
+            _meltValLabel.Text = _meltSlider.Value == 0 ? Tr("Kapalı", "Off") : "%" + _meltSlider.Value;
         }
 
         private void ApplyPreset(int density, float nx, float ny, float gust, bool blizzard)
@@ -4704,22 +5592,15 @@ namespace SnowyWindows
             UpdateWindStatus(nx, ny);
         }
 
-        private static Button CreateStyledButton(string text, Point loc, Size size, Color bg)
+        private static ModernButton CreateModernButton(Point loc, Size size, Color bg)
         {
-            Button b = new Button
+            return new ModernButton
             {
-                Text = text,
                 Location = loc,
                 Size = size,
-                BackColor = bg,
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold),
-                Cursor = Cursors.Hand,
-                UseVisualStyleBackColor = false
+                FillColor = bg,
+                CornerRadius = 8
             };
-            b.FlatAppearance.BorderSize = 0;
-            return b;
         }
 
         private void UpdateWindStatus(float nx, float ny)
@@ -4742,69 +5623,110 @@ namespace SnowyWindows
             _windValueLabel.Text = pct + "% - " + dirStr;
         }
 
+        private void SyncLightsButton()
+        {
+            _lightsBtn.Text = _overlay.FairyLightsEnabled ? Tr("🎄 Işıklar: Açık", "🎄 Lights: On") : Tr("🎄 Işıklar: Kapalı", "🎄 Lights: Off");
+        }
+
+        private void SyncIciclesButton()
+        {
+            _iciclesBtn.Text = _overlay.IciclesEnabled ? Tr("🧊 Sarkıtlar: Açık", "🧊 Icicles: On") : Tr("🧊 Sarkıtlar: Kapalı", "🧊 Icicles: Off");
+        }
+
+        private void SyncCableCarButton()
+        {
+            if (_overlay.CableCarEnabled)
+            {
+                _cableCarBtn.Text = Tr("🚡 Teleferik: Açık (2 Pencere Arası)", "🚡 Cable Car: On (Between 2 Apps)");
+                _cableCarBtn.FillColor = Color.FromArgb(127, 29, 29);
+                _cableCarBtn.BorderColor = Color.FromArgb(248, 113, 113);
+                _cableCarBtn.ForeColor = Color.FromArgb(254, 226, 226);
+            }
+            else
+            {
+                _cableCarBtn.Text = Tr("🚡 Teleferik: Kapalı", "🚡 Cable Car: Off");
+                _cableCarBtn.FillColor = Color.FromArgb(24, 35, 54);
+                _cableCarBtn.BorderColor = Color.FromArgb(46, 62, 88);
+                _cableCarBtn.ForeColor = Color.FromArgb(203, 213, 225);
+            }
+            _cableCarBtn.Invalidate();
+        }
+
         private void SyncMultiMonitorButton()
         {
             if (_overlay.MultiMonitorEnabled)
             {
                 int total = Math.Min(3, Screen.AllScreens != null ? Screen.AllScreens.Length : 1);
-                _multiMonBtn.Text = "🖥️ Çoklu Ekran: Açık (" + total + " Ekran Aktif)";
-                _multiMonBtn.BackColor = Color.FromArgb(14, 116, 144);
+                _multiMonBtn.Text = Tr("🖥️ Çoklu Ekran: Açık (" + total + " Ekran)", "🖥️ Multi-Monitor: On (" + total + " Screens)");
+                _multiMonBtn.FillColor = Color.FromArgb(14, 116, 144);
+                _multiMonBtn.BorderColor = Color.FromArgb(56, 189, 248);
                 _multiMonBtn.ForeColor = Color.FromArgb(224, 242, 254);
             }
             else
             {
-                _multiMonBtn.Text = "🖥️ Çoklu Ekran: Kapalı (Sadece Ana Ekran)";
-                _multiMonBtn.BackColor = Color.FromArgb(30, 41, 59);
+                _multiMonBtn.Text = Tr("🖥️ Çoklu Ekran: Kapalı (Ana Ekran)", "🖥️ Multi-Monitor: Off (Primary)");
+                _multiMonBtn.FillColor = Color.FromArgb(24, 35, 54);
+                _multiMonBtn.BorderColor = Color.FromArgb(46, 62, 88);
                 _multiMonBtn.ForeColor = Color.White;
             }
+            _multiMonBtn.Invalidate();
         }
 
         private void SyncPerfButton()
         {
             if (_overlay.PerformanceMode)
             {
-                _perfBtn.Text = "⚡ Performans: Açık";
-                _perfBtn.BackColor = Color.FromArgb(21, 128, 61);
+                _perfBtn.Text = Tr("⚡ Performans: Açık", "⚡ Perf Mode: On");
+                _perfBtn.FillColor = Color.FromArgb(21, 128, 61);
+                _perfBtn.BorderColor = Color.FromArgb(74, 222, 128);
             }
             else
             {
-                _perfBtn.Text = "⚡ Performans";
-                _perfBtn.BackColor = Color.FromArgb(30, 41, 59);
+                _perfBtn.Text = Tr("⚡ Performans", "⚡ Perf Mode");
+                _perfBtn.FillColor = Color.FromArgb(24, 35, 54);
+                _perfBtn.BorderColor = Color.FromArgb(46, 62, 88);
             }
+            _perfBtn.Invalidate();
         }
 
         private void SyncPauseButton()
         {
             if (_overlay.Paused)
             {
-                _pauseBtn.Text = "▶ Devam Et (F7)";
-                _pauseBtn.BackColor = Color.FromArgb(180, 83, 9);
+                _pauseBtn.Text = Tr("▶ Devam Et (F7)", "▶ Resume (F7)");
+                _pauseBtn.FillColor = Color.FromArgb(180, 83, 9);
+                _pauseBtn.BorderColor = Color.FromArgb(251, 191, 36);
             }
             else
             {
-                _pauseBtn.Text = "⏸ Duraklat (F7)";
-                _pauseBtn.BackColor = Color.FromArgb(30, 41, 59);
+                _pauseBtn.Text = Tr("⏸ Duraklat (F7)", "⏸ Pause (F7)");
+                _pauseBtn.FillColor = Color.FromArgb(24, 35, 54);
+                _pauseBtn.BorderColor = Color.FromArgb(46, 62, 88);
             }
+            _pauseBtn.Invalidate();
         }
 
         private void SyncInteractiveBadge()
         {
             if (_overlay.InteractiveMode)
             {
-                _modeBadge.Text = "Etkileşim Aktif";
+                _modeBadge.Text = Tr("Etkileşim", "Interactive");
                 _modeBadge.ForeColor = Color.FromArgb(253, 224, 71);
                 _modeBadge.BackColor = Color.FromArgb(66, 32, 6);
-                _interactBtn.Text = "🔓 Geçirgen Moda Dön (F8)";
-                _interactBtn.BackColor = Color.FromArgb(202, 138, 4);
+                _interactBtn.Text = Tr("🔓 Geçirgen Moda Dön (F8)", "🔓 Click-Through Mode (F8)");
+                _interactBtn.FillColor = Color.FromArgb(180, 118, 8);
+                _interactBtn.BorderColor = Color.FromArgb(250, 204, 21);
             }
             else
             {
-                _modeBadge.Text = "Geçirgen Mod";
+                _modeBadge.Text = Tr("Geçirgen", "Pass-Thru");
                 _modeBadge.ForeColor = Color.FromArgb(56, 189, 248);
-                _modeBadge.BackColor = Color.FromArgb(30, 41, 59);
-                _interactBtn.Text = "🖱️ Etkileşim Modunu Aç (F8)";
-                _interactBtn.BackColor = Color.FromArgb(2, 132, 199);
+                _modeBadge.BackColor = Color.FromArgb(24, 38, 60);
+                _interactBtn.Text = Tr("🖱️ Etkileşim Modunu Aç (F8)", "🖱️ Interactive Mode (F8)");
+                _interactBtn.FillColor = Color.FromArgb(2, 132, 199);
+                _interactBtn.BorderColor = Color.FromArgb(56, 189, 248);
             }
+            _interactBtn.Invalidate();
         }
     }
 
@@ -4858,10 +5780,12 @@ namespace SnowyWindows
                         case "melt": o.MeltRate = Clamp(f, 0f, 0.0008f); break;
                         case "lights": o.FairyLightsEnabled = f > 0.5f; break;
                         case "icicles": o.IciclesEnabled = f > 0.5f; break;
+                        case "cableCar": o.CableCarEnabled = f > 0.5f; break;
                         case "blizzard": o.BlizzardMode = f > 0.5f; break;
                         case "multiMonitor": if (f > 0.5f) o.SetMultiMonitorMode(true); break;
                         case "autoPause": o.AutoPauseOnFullscreen = f > 0.5f; break;
                         case "perf": o.PerformanceMode = f > 0.5f; break;
+                        case "lang": o.IsEnglish = f > 0.5f; break;
                     }
                 }
             }
@@ -4889,10 +5813,12 @@ namespace SnowyWindows
                     "melt=" + o.MeltRate.ToString("0.#######", ci),
                     "lights=" + (o.FairyLightsEnabled ? "1" : "0"),
                     "icicles=" + (o.IciclesEnabled ? "1" : "0"),
+                    "cableCar=" + (o.CableCarEnabled ? "1" : "0"),
                     "blizzard=" + (o.BlizzardMode ? "1" : "0"),
                     "multiMonitor=" + (o.MultiMonitorEnabled ? "1" : "0"),
                     "autoPause=" + (o.AutoPauseOnFullscreen ? "1" : "0"),
-                    "perf=" + (o.PerformanceMode ? "1" : "0")
+                    "perf=" + (o.PerformanceMode ? "1" : "0"),
+                    "lang=" + (o.IsEnglish ? "1" : "0")
                 };
                 System.IO.File.WriteAllLines(path, lines);
             }
