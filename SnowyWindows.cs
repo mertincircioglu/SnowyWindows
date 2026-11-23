@@ -55,6 +55,7 @@ namespace SnowyWindows
         public const int VK_F7 = 0x76;
         public const int VK_F8 = 0x77;
         public const int VK_F9 = 0x78;
+        public const int VK_F10 = 0x79;
 
         // SetWinEventHook sabitleri (Spotify/Discord gibi sonradan açılan/öne gelen pencereleri 0 gecikmeyle yakalar)
         public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
@@ -2037,6 +2038,529 @@ namespace SnowyWindows
         }
     }
 
+    internal struct WishLantern
+    {
+        public bool Active;
+        public float X;
+        public float Y;
+        public float Vy;
+        public float SwayPhase;
+        public float Scale;
+        public float FlickerPhase;
+        public int WarmHue; // 0: Amber, 1: Gold, 2: Soft Coral
+    }
+
+    internal struct ConfettiParticle
+    {
+        public bool Active;
+        public float X;
+        public float Y;
+        public float Vx;
+        public float Vy;
+        public float Angle;
+        public float Spin;
+        public float Size;
+        public int Ttl;
+        public int MaxTtl;
+        public Color Color;
+    }
+
+    internal struct MagicSparkle
+    {
+        public bool Active;
+        public float X;
+        public float Y;
+        public float Vx;
+        public float Vy;
+        public float Size;
+        public int Ttl;
+        public int MaxTtl;
+        public bool IsRing;
+        public Color Color;
+    }
+
+    internal sealed class WinterBirdEntity
+    {
+        public float X;
+        public float Y;
+        public float Vx;
+        public float Vy;
+        public float TargetX;
+        public float TargetY;
+        public IntPtr SurfaceHwnd;
+        public ChristmasTreeEntity PerchedTree;
+        public float TreeOffsetX;
+        public float TreeOffsetY;
+        public int Species; // 0: Kızılgerdan (Robin), 1: Kar Baykuşu (Snowy Owl)
+        public int Direction = 1;
+        public int State; // 0: Perched, 1: Flying
+        public int StateTimer;
+        public float WingPhase;
+        public float HopOffset;
+        public float LookPhase;
+
+        public WinterBirdEntity(float x, float y, int species, Random rng)
+        {
+            X = x;
+            Y = y;
+            Species = species;
+            Direction = rng.Next(2) == 0 ? 1 : -1;
+            State = 1;
+            StateTimer = 40 + rng.Next(60);
+            WingPhase = (float)(rng.NextDouble() * Math.PI * 2.0);
+            LookPhase = (float)(rng.NextDouble() * Math.PI * 2.0);
+        }
+    }
+
+    internal sealed class ChristmasTreeEntity
+    {
+        public float X;
+        public float Y;
+        public float Vx;
+        public float Vy;
+        public IntPtr SurfaceHwnd;
+        public bool Dragging;
+        public float WobbleAngle;
+        public float WobbleVel;
+        public float Scale = 1.0f;         // 0.60 .. 1.60
+        public int TreeStyle;              // 0: Klasik Çam, 1: Karlı Çam, 2: Buz Beyazı, 3: Pembe/Altın
+        public int TopperStyle = 1;        // 0: Yok, 1: Altın Yıldız, 2: Kar Tanesi, 3: Kırmızı Fiyonk
+        public int LightStyle = 1;         // 0: Yok, 1: Sıcak Altın, 2: Çok Renkli, 3: Buz Mavisi
+        public int LightAnim = 1;          // 0: Sabit, 1: Parıldayan, 2: Dalga, 3: Müziğe Duyarlı
+        public int OrnamentStyle = 1;      // 0: Yok, 1: Klasik Toplar, 2: Şeker Baston, 3: Mini Yıldızlar
+        public Color OrnamentColor = Color.FromArgb(255, 220, 38, 38);
+        public int GarlandStyle = 1;       // 0: Yok, 1: Altın Sarmal, 2: Kırmızı Kurdele, 3: Gümüş İnci
+        public bool HasGifts = true;
+        public int HitCooldown;
+
+        public static readonly Color[] OrnamentPalette = new Color[]
+        {
+            Color.FromArgb(255, 220, 38, 38),   // Yılbaşı Kırmızısı
+            Color.FromArgb(255, 250, 204, 21),  // Parlak Altın
+            Color.FromArgb(255, 56, 189, 248),  // Buz Mavisi
+            Color.FromArgb(255, 244, 114, 182), // Şeker Pembe
+            Color.FromArgb(255, 168, 85, 247),  // Lavanta Mor
+            Color.FromArgb(255, 52, 211, 153),  // Zümrüt Yeşil
+            Color.FromArgb(255, 249, 115, 22),  // Sıcak Turuncu
+            Color.FromArgb(255, 248, 250, 252)  // İnci Beyazı
+        };
+
+        public float TotalHeight { get { return 118f * Scale; } }
+        public float HalfWidth { get { return 42f * Scale; } }
+
+        public ChristmasTreeEntity(float x, float y, IntPtr surfaceHwnd, Random rng)
+        {
+            X = x;
+            Y = y;
+            SurfaceHwnd = surfaceHwnd;
+            TreeStyle = rng.Next(2); // Klasik veya Karlı Çam
+            TopperStyle = 1;
+            LightStyle = 1 + rng.Next(2);
+            LightAnim = 1;
+            OrnamentStyle = 1;
+            OrnamentColor = OrnamentPalette[rng.Next(4)];
+            GarlandStyle = 1;
+            HasGifts = true;
+        }
+
+        public void ApplyScale(float scale)
+        {
+            Scale = Math.Max(0.60f, Math.Min(1.60f, scale));
+        }
+
+        public void ApplyPreset(int preset)
+        {
+            if (preset == 0)
+            {
+                // Klasik Yılbaşı
+                TreeStyle = 1; TopperStyle = 1; LightStyle = 1; LightAnim = 1;
+                OrnamentStyle = 1; OrnamentColor = OrnamentPalette[0]; GarlandStyle = 1; HasGifts = true;
+            }
+            else if (preset == 1)
+            {
+                // Buzul Kristali
+                TreeStyle = 2; TopperStyle = 2; LightStyle = 3; LightAnim = 2;
+                OrnamentStyle = 3; OrnamentColor = OrnamentPalette[2]; GarlandStyle = 3; HasGifts = true;
+            }
+            else if (preset == 2)
+            {
+                // Altın Gala
+                TreeStyle = 0; TopperStyle = 1; LightStyle = 1; LightAnim = 1;
+                OrnamentStyle = 1; OrnamentColor = OrnamentPalette[1]; GarlandStyle = 1; HasGifts = true;
+            }
+            else
+            {
+                // Şeker & Parti
+                TreeStyle = 3; TopperStyle = 3; LightStyle = 2; LightAnim = 2;
+                OrnamentStyle = 2; OrnamentColor = OrnamentPalette[3]; GarlandStyle = 2; HasGifts = true;
+            }
+        }
+
+        public void Randomize(Random rng)
+        {
+            TreeStyle = rng.Next(4);
+            TopperStyle = 1 + rng.Next(3);
+            LightStyle = 1 + rng.Next(3);
+            LightAnim = rng.Next(4);
+            OrnamentStyle = 1 + rng.Next(3);
+            OrnamentColor = OrnamentPalette[rng.Next(OrnamentPalette.Length)];
+            GarlandStyle = rng.Next(4);
+            HasGifts = rng.Next(100) < 85;
+        }
+
+        public bool HitTest(float px, float py)
+        {
+            float hw = HalfWidth + 8f;
+            float th = TotalHeight + 14f;
+            if (Math.Abs(px - X) > hw || py > Y + 8f || py < Y - th) return false;
+            // Üçgen gövde yaklaşık kontrolü (alt kısım geniş, tepe dar)
+            float relY = (Y - py) / Math.Max(1f, th); // 0 = taban, 1 = tepe
+            float allowedW = hw * (1.12f - relY * 0.72f);
+            return Math.Abs(px - X) <= allowedW;
+        }
+
+        public PointF GetPerchOffset(int slot)
+        {
+            // Ağaç dallarında kuşların konabileceği noktalar (yerel ofset)
+            if (slot == 0) return new PointF(-20f * Scale, -56f * Scale);
+            if (slot == 1) return new PointF(18f * Scale, -64f * Scale);
+            return new PointF(-12f * Scale, -86f * Scale);
+        }
+    }
+
+    internal static class TreeRenderer
+    {
+        private static readonly PointF[] OrnamentOffsets = new PointF[]
+        {
+            new PointF(-22f, -32f), new PointF(-4f, -27f), new PointF(16f, -31f), new PointF(28f, -24f),
+            new PointF(-17f, -52f), new PointF(3f, -48f),  new PointF(20f, -53f),
+            new PointF(-13f, -72f), new PointF(7f, -70f),  new PointF(-4f, -88f), new PointF(10f, -86f)
+        };
+
+        private static readonly PointF[] LightOffsets = new PointF[]
+        {
+            new PointF(-29f, -23f), new PointF(-14f, -30f), new PointF(4f, -22f),   new PointF(21f, -29f),
+            new PointF(-24f, -43f), new PointF(-8f, -49f),  new PointF(10f, -43f),  new PointF(24f, -47f),
+            new PointF(-18f, -63f), new PointF(0f, -67f),   new PointF(16f, -62f),
+            new PointF(-12f, -82f), new PointF(6f, -80f),   new PointF(-2f, -96f)
+        };
+
+        private static readonly Color[] MultiLightColors = new Color[]
+        {
+            Color.FromArgb(255, 250, 204, 21),
+            Color.FromArgb(255, 248, 113, 113),
+            Color.FromArgb(255, 56, 189, 248),
+            Color.FromArgb(255, 52, 211, 153),
+            Color.FromArgb(255, 244, 114, 182)
+        };
+
+        public static void DrawTree(
+            Graphics g, ChristmasTreeEntity tree,
+            float drawX, float drawY, float scaleOverride,
+            float time, float audioLevel, float audioBeat, bool isHighlighted)
+        {
+            float sc = tree.Scale * scaleOverride;
+            GraphicsState st = g.Save();
+            g.TranslateTransform(drawX, drawY);
+            g.ScaleTransform(sc, sc);
+            g.RotateTransform(tree.WobbleAngle);
+
+            // Seçili ağaç için alt ışık halkası (Süsleme penceresi açıkken)
+            if (isHighlighted)
+            {
+                float pulse = 0.65f + 0.35f * (float)Math.Sin(time * 5.0f);
+                int ga = (int)(85 + 55 * pulse);
+                using (SolidBrush halo = new SolidBrush(Color.FromArgb(ga / 3, 52, 211, 153)))
+                using (Pen ring = new Pen(Color.FromArgb(ga, 52, 211, 153), 2.0f))
+                {
+                    g.FillEllipse(halo, -42f, -7f, 84f, 14f);
+                    g.DrawEllipse(ring, -42f, -7f, 84f, 14f);
+                }
+            }
+
+            // 1. Alt gölge + Kütük gövde
+            using (SolidBrush shadow = new SolidBrush(Color.FromArgb(75, 15, 23, 42)))
+                g.FillEllipse(shadow, -34f, -5f, 68f, 10f);
+            using (LinearGradientBrush trunkGrad = new LinearGradientBrush(
+                new RectangleF(-8f, -20f, 16f, 20f),
+                Color.FromArgb(252, 120, 68, 36),
+                Color.FromArgb(252, 72, 38, 18),
+                LinearGradientMode.Horizontal))
+            {
+                g.FillRectangle(trunkGrad, -7.5f, -19f, 15f, 19f);
+            }
+
+            // 2. Ağaç yaprak renk paleti
+            Color cTop, cBot, cRim;
+            bool snowTips = false;
+            if (tree.TreeStyle == 0)
+            {
+                // Klasik Çam
+                cTop = Color.FromArgb(252, 34, 139, 76);
+                cBot = Color.FromArgb(252, 14, 72, 42);
+                cRim = Color.FromArgb(220, 12, 54, 32);
+            }
+            else if (tree.TreeStyle == 1)
+            {
+                // Karlı Çam
+                cTop = Color.FromArgb(252, 30, 128, 86);
+                cBot = Color.FromArgb(252, 15, 76, 54);
+                cRim = Color.FromArgb(220, 14, 58, 44);
+                snowTips = true;
+            }
+            else if (tree.TreeStyle == 2)
+            {
+                // Buz Beyazı / Mavi Modern Ağaç
+                cTop = Color.FromArgb(252, 236, 248, 255);
+                cBot = Color.FromArgb(252, 147, 197, 253);
+                cRim = Color.FromArgb(210, 96, 165, 250);
+            }
+            else
+            {
+                // Pembe / Altın Kış Ağacı
+                cTop = Color.FromArgb(252, 251, 207, 232);
+                cBot = Color.FromArgb(252, 219, 112, 147);
+                cRim = Color.FromArgb(215, 190, 74, 116);
+                snowTips = true;
+            }
+
+            // 3. 4 Katmanlı Çam Dalları (alttan üste, yumuşak kavisli eteklerle)
+            float[] tierBaseY = new float[] { -15f, -40f, -64f, -85f };
+            float[] tierTipY = new float[] { -54f, -76f, -97f, -113f };
+            float[] tierHalfW = new float[] { 40f, 33f, 25f, 16.5f };
+
+            for (int t = 0; t < 4; t++)
+            {
+                float by = tierBaseY[t];
+                float ty = tierTipY[t];
+                float hw = tierHalfW[t];
+                using (GraphicsPath gp = new GraphicsPath())
+                {
+                    PointF[] pts = new PointF[]
+                    {
+                        new PointF(0f, ty),
+                        new PointF(hw, by - 2f),
+                        new PointF(hw * 0.55f, by + 3.5f),
+                        new PointF(0f, by + 1.0f),
+                        new PointF(-hw * 0.55f, by + 3.5f),
+                        new PointF(-hw, by - 2f)
+                    };
+                    gp.AddPolygon(pts);
+
+                    RectangleF gradR = new RectangleF(-hw - 1f, ty - 1f, hw * 2f + 2f, (by - ty) + 8f);
+                    using (LinearGradientBrush tb = new LinearGradientBrush(gradR, cTop, cBot, LinearGradientMode.Vertical))
+                    using (Pen tp = new Pen(cRim, 1.15f))
+                    {
+                        g.FillPath(tb, gp);
+                        g.DrawPath(tp, gp);
+                    }
+                }
+
+                // Dalların uçlarında yumuşak kar birikintisi
+                if (snowTips)
+                {
+                    using (Pen snowPen = new Pen(Color.FromArgb(230, 248, 252, 255), 3.0f)
+                    {
+                        StartCap = LineCap.Round,
+                        EndCap = LineCap.Round
+                    })
+                    {
+                        g.DrawLine(snowPen, -hw + 2f, by - 2.5f, -hw * 0.45f, by + 2.2f);
+                        g.DrawLine(snowPen, hw - 2f, by - 2.5f, hw * 0.45f, by + 2.2f);
+                    }
+                }
+            }
+
+            // 4. Sarmal Kurdele / Çelenk (Garland)
+            if (tree.GarlandStyle != 0)
+            {
+                Color gc = tree.GarlandStyle == 1
+                    ? Color.FromArgb(245, 250, 204, 21)
+                    : (tree.GarlandStyle == 2 ? Color.FromArgb(245, 239, 68, 68) : Color.FromArgb(245, 226, 232, 240));
+                using (Pen gPen = new Pen(gc, tree.GarlandStyle == 3 ? 2.1f : 2.8f)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round,
+                    DashStyle = tree.GarlandStyle == 3 ? DashStyle.Dot : DashStyle.Solid
+                })
+                {
+                    g.DrawBezier(gPen, -14f, -84f, -4f, -77f, 6f, -77f, 15f, -82f);
+                    g.DrawBezier(gPen, -22f, -62f, -8f, -53f, 8f, -53f, 23f, -59f);
+                    g.DrawBezier(gPen, -31f, -38f, -10f, -27f, 12f, -27f, 32f, -35f);
+                }
+            }
+
+            // 5. Ağaç Süsleri (Ornaments)
+            if (tree.OrnamentStyle != 0)
+            {
+                Color oc = tree.OrnamentColor.A > 0 ? tree.OrnamentColor : Color.FromArgb(255, 220, 38, 38);
+                Color altGold = Color.FromArgb(255, 250, 204, 21);
+                using (SolidBrush bMain = new SolidBrush(oc))
+                using (SolidBrush bAlt = new SolidBrush(altGold))
+                using (SolidBrush bSpec = new SolidBrush(Color.FromArgb(190, 255, 255, 255)))
+                {
+                    for (int i = 0; i < OrnamentOffsets.Length; i++)
+                    {
+                        float ox = OrnamentOffsets[i].X;
+                        float oy = OrnamentOffsets[i].Y;
+                        if (tree.OrnamentStyle == 1)
+                        {
+                            // Klasik parlak yılbaşı topları
+                            SolidBrush fill = (i % 3 == 1) ? bAlt : bMain;
+                            g.FillEllipse(fill, ox - 3.6f, oy - 3.6f, 7.2f, 7.2f);
+                            g.FillEllipse(bSpec, ox - 2.0f, oy - 2.2f, 2.2f, 2.2f);
+                        }
+                        else if (tree.OrnamentStyle == 2)
+                        {
+                            // Mini Baston Şekerler
+                            using (Pen pw = new Pen(Color.White, 2.2f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                            using (Pen pr = new Pen(oc, 2.2f) { DashStyle = DashStyle.Dash })
+                            {
+                                g.DrawLine(pw, ox, oy + 4f, ox, oy - 3f);
+                                g.DrawArc(pw, ox, oy - 6f, 4.5f, 4.5f, 180f, 180f);
+                                g.DrawLine(pr, ox, oy + 4f, ox, oy - 3f);
+                            }
+                        }
+                        else
+                        {
+                            // Parlayan Mini Yıldızlar / Kar Taneleri
+                            SolidBrush fill = (i % 2 == 0) ? bMain : bAlt;
+                            DrawMiniStar(g, fill, ox, oy, 4.2f);
+                        }
+                    }
+                }
+            }
+
+            // 6. Animasyonlu Yılbaşı Işıkları
+            if (tree.LightStyle != 0)
+            {
+                for (int i = 0; i < LightOffsets.Length; i++)
+                {
+                    float lx = LightOffsets[i].X;
+                    float ly = LightOffsets[i].Y;
+
+                    Color lc;
+                    if (tree.LightStyle == 1) lc = Color.FromArgb(255, 254, 240, 138);
+                    else if (tree.LightStyle == 2) lc = MultiLightColors[i % MultiLightColors.Length];
+                    else lc = Color.FromArgb(255, 125, 211, 252);
+
+                    float b = 1.0f;
+                    if (tree.LightAnim == 1)
+                        b = 0.45f + 0.55f * (float)(Math.Sin(time * 4.2f + i * 1.45f) * 0.5 + 0.5);
+                    else if (tree.LightAnim == 2)
+                        b = 0.35f + 0.65f * (float)(Math.Sin(time * 5.0f - ly * 0.09f) * 0.5 + 0.5);
+                    else if (tree.LightAnim == 3)
+                        b = Math.Min(1.35f, 0.38f + audioLevel * 1.15f + audioBeat * 0.55f);
+
+                    int glowA = Math.Max(18, Math.Min(115, (int)(78f * b)));
+                    int coreA = Math.Max(110, Math.Min(255, (int)(245f * Math.Min(1f, b))));
+                    float gr = 5.5f + b * 2.5f;
+
+                    using (SolidBrush gb = new SolidBrush(Color.FromArgb(glowA, lc.R, lc.G, lc.B)))
+                    using (SolidBrush cb = new SolidBrush(Color.FromArgb(coreA, lc.R, lc.G, lc.B)))
+                    using (SolidBrush wb = new SolidBrush(Color.FromArgb(Math.Min(230, coreA), 255, 255, 255)))
+                    {
+                        g.FillEllipse(gb, lx - gr, ly - gr, gr * 2f, gr * 2f);
+                        g.FillEllipse(cb, lx - 2.3f, ly - 2.3f, 4.6f, 4.6f);
+                        g.FillEllipse(wb, lx - 1.0f, ly - 1.0f, 2.0f, 2.0f);
+                    }
+                }
+            }
+
+            // 7. Tepe Süsü (Topper)
+            if (tree.TopperStyle == 1)
+            {
+                // Parlayan Altın Yıldız
+                float pulse = 0.85f + 0.2f * (float)Math.Sin(time * 4.5f) + audioBeat * 0.25f;
+                using (SolidBrush halo = new SolidBrush(Color.FromArgb(72, 253, 224, 71)))
+                using (SolidBrush starB = new SolidBrush(Color.FromArgb(255, 250, 204, 21)))
+                using (Pen starP = new Pen(Color.FromArgb(250, 254, 249, 195), 1.0f))
+                {
+                    float hr = 13f * pulse;
+                    g.FillEllipse(halo, -hr, -115f - hr, hr * 2f, hr * 2f);
+                    DrawFivePointStar(g, starB, starP, 0f, -115f, 9.5f * pulse, 4.2f * pulse);
+                }
+            }
+            else if (tree.TopperStyle == 2)
+            {
+                // Kristal Kar Tanesi Tepe Süsü
+                using (SolidBrush halo = new SolidBrush(Color.FromArgb(72, 125, 211, 252)))
+                using (Pen sp = new Pen(Color.FromArgb(252, 224, 242, 254), 1.8f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                {
+                    g.FillEllipse(halo, -12f, -127f, 24f, 24f);
+                    for (int a = 0; a < 6; a++)
+                    {
+                        double rad = a * Math.PI / 3.0;
+                        float dx = (float)Math.Cos(rad) * 8.5f;
+                        float dy = (float)Math.Sin(rad) * 8.5f;
+                        g.DrawLine(sp, 0f, -115f, dx, -115f + dy);
+                    }
+                }
+            }
+            else if (tree.TopperStyle == 3)
+            {
+                // Kırmızı Kadife Fiyonk
+                using (SolidBrush bow = new SolidBrush(Color.FromArgb(252, 220, 38, 38)))
+                using (Pen gold = new Pen(Color.FromArgb(240, 250, 204, 21), 1.2f))
+                {
+                    g.FillEllipse(bow, -11f, -120f, 11f, 8f);
+                    g.FillEllipse(bow, 0f, -120f, 11f, 8f);
+                    g.DrawEllipse(gold, -11f, -120f, 11f, 8f);
+                    g.DrawEllipse(gold, 0f, -120f, 11f, 8f);
+                    g.FillEllipse(bow, -3.5f, -119f, 7f, 6.5f);
+                }
+            }
+
+            // 8. Ağaç Altı Minik Hediye Paketleri
+            if (tree.HasGifts)
+            {
+                DrawMiniGift(g, -23f, -11f, 13f, 11f, Color.FromArgb(250, 220, 38, 38), Color.FromArgb(250, 250, 204, 21));
+                DrawMiniGift(g, 11f, -13f, 14f, 13f, Color.FromArgb(250, 37, 99, 235), Color.FromArgb(250, 248, 250, 252));
+                DrawMiniGift(g, -5f, -9f, 11f, 9f, Color.FromArgb(250, 147, 51, 234), Color.FromArgb(250, 253, 224, 71));
+            }
+
+            g.Restore(st);
+        }
+
+        private static void DrawMiniGift(Graphics g, float x, float y, float w, float h, Color boxCol, Color ribCol)
+        {
+            using (SolidBrush bb = new SolidBrush(boxCol))
+            using (SolidBrush rb = new SolidBrush(ribCol))
+            using (Pen rim = new Pen(Color.FromArgb(140, 15, 23, 42), 0.9f))
+            {
+                g.FillRectangle(bb, x, y, w, h);
+                g.FillRectangle(rb, x + w * 0.5f - 1.4f, y, 2.8f, h);
+                g.FillRectangle(rb, x, y + h * 0.45f - 1.2f, w, 2.4f);
+                g.DrawRectangle(rim, x, y, w, h);
+            }
+        }
+
+        private static void DrawMiniStar(Graphics g, Brush b, float cx, float cy, float r)
+        {
+            PointF[] pts = new PointF[8];
+            for (int i = 0; i < 8; i++)
+            {
+                double a = i * Math.PI / 4.0;
+                float rad = (i % 2 == 0) ? r : r * 0.38f;
+                pts[i] = new PointF(cx + (float)Math.Cos(a) * rad, cy + (float)Math.Sin(a) * rad);
+            }
+            g.FillPolygon(b, pts);
+        }
+
+        private static void DrawFivePointStar(Graphics g, Brush b, Pen p, float cx, float cy, float outerR, float innerR)
+        {
+            PointF[] pts = new PointF[10];
+            for (int i = 0; i < 10; i++)
+            {
+                double a = -Math.PI * 0.5 + i * Math.PI / 5.0;
+                float r = (i % 2 == 0) ? outerR : innerR;
+                pts[i] = new PointF(cx + (float)Math.Cos(a) * r, cy + (float)Math.Sin(a) * r);
+            }
+            g.FillPolygon(b, pts);
+            g.DrawPolygon(p, pts);
+        }
+    }
+
     internal sealed class SnowPlowEntity
     {
         public float X;
@@ -2101,6 +2625,11 @@ namespace SnowyWindows
         public bool SoundEnabled { get; set; }
         public bool AudioReactiveEnabled { get; set; }
         public bool RememberSnowmen { get; set; }
+        public bool CountdownEnabled { get; set; }
+        public bool LanternsEnabled { get; set; }
+        public bool BirdsEnabled { get; set; }
+        public bool CursorTrailEnabled { get; set; }
+        public bool ShakeEnabled { get; set; }
         public float AudioLevel { get { return _audioLevelSmooth; } }
         public bool BlizzardMode { get; set; }
         public bool MultiMonitorEnabled { get; private set; }
@@ -2113,6 +2642,7 @@ namespace SnowyWindows
         public float WindowInteriorSnowOpacity { get; set; } // 0.0f .. 1.0f (Uygulamaların içine yağarken şeffaflık)
         public IntPtr ControlPanelHwnd { get; set; }
         public IntPtr WardrobeHwnd { get; set; }
+        public IntPtr TreeDecoratorHwnd { get; set; }
         public bool Paused { get; private set; }
         public float GustAmount { get; set; }          // 0..1 doğal rüzgar hamlesi şiddeti
         public float MeltRate { get; set; }            // Karelik erime oranı (0 = erimez)
@@ -2138,15 +2668,42 @@ namespace SnowyWindows
         private readonly List<WindowSurface> _orderedSurfaces = new List<WindowSurface>();
         private readonly List<SnowballEntity> _snowballs = new List<SnowballEntity>();
         private readonly List<SnowmanEntity> _snowmen = new List<SnowmanEntity>();
+        private readonly List<ChristmasTreeEntity> _trees = new List<ChristmasTreeEntity>();
+        private readonly List<WinterBirdEntity> _birds = new List<WinterBirdEntity>();
         private readonly List<SnowPlowEntity> _plows = new List<SnowPlowEntity>();
         private readonly List<CampfireEntity> _campfires = new List<CampfireEntity>();
         private readonly List<GiftBoxEntity> _gifts = new List<GiftBoxEntity>();
         private readonly List<PenguinEntity> _penguins = new List<PenguinEntity>();
         private readonly FloatingPopup[] _popups = new FloatingPopup[24];
+        private readonly WishLantern[] _lanterns = new WishLantern[18];
+        private readonly ConfettiParticle[] _confetti = new ConfettiParticle[220];
+        private readonly MagicSparkle[] _magicSparkles = new MagicSparkle[96];
         private CampfireEntity _draggedCampfire;
         private PenguinEntity _draggedPenguin;
+        private ChristmasTreeEntity _draggedTree;
         private Point _penguinMouseDownPos;
         private Point _lastCursorPos;
+
+        // v1.4 Yılbaşı Geri Sayımı, Dilek Fenerleri, Kar Küresi Sallama & Kartpostal Bildirimi
+        private TreeDecoratorForm _treeDecoratorForm;
+        private float _countdownX = -1f;
+        private float _countdownY = 26f;
+        private bool _draggingCountdown;
+        private PointF _countdownDragOffset;
+        private int _celebrationBannerTicks;
+        private int _celebrationYear;
+        private int _lastCelebratedYear;
+        private int _lanternSpawnCooldown = 90;
+        private int _shakeVortexTimer;
+        private int _mouseShakeDir;
+        private int _mouseShakeCount;
+        private int _mouseShakeTimer;
+        private int _mouseShakeCooldown;
+        private Point _lastTrailCursor;
+        private bool _hasLastTrailCursor;
+        private string _toastText = "";
+        private int _toastTicks;
+        private bool _f10WasDown;
 
         // Ses Efektleri & Müziğe Duyarlı Sistem (WASAPI)
         private readonly WinterAudioSynth _audioSynth = new WinterAudioSynth();
@@ -2278,6 +2835,11 @@ namespace SnowyWindows
             SoundEnabled = true;
             AudioReactiveEnabled = false;
             RememberSnowmen = true;
+            CountdownEnabled = true;
+            LanternsEnabled = true;
+            BirdsEnabled = true;
+            CursorTrailEnabled = false;
+            ShakeEnabled = true;
             BlizzardMode = false;
             ActiveSnowCount = 420;
             MaxPileHeight = 34f;
@@ -2330,8 +2892,14 @@ namespace SnowyWindows
             FullEnumWindowsScan();
             SpawnInitialPlowOnly();
             if (RememberSnowmen)
+            {
                 RestoreSavedSnowmen();
+                RestoreSavedTrees();
+            }
+            if (_trees.Count == 0)
+                SpawnChristmasTree(true);
             SpawnPenguin(true);
+            EnsureWinterBirdsCount();
             ApplyClickThroughStyle();
             _lastTickTime = _clock.Elapsed.TotalSeconds;
             _renderTimer.Start();
@@ -2362,7 +2930,9 @@ namespace SnowyWindows
         {
             if (idObject != NativeMethods.OBJID_WINDOW || hwnd == IntPtr.Zero)
                 return;
-            if (hwnd == Handle || hwnd == ControlPanelHwnd || (WardrobeHwnd != IntPtr.Zero && hwnd == WardrobeHwnd))
+            if (hwnd == Handle || hwnd == ControlPanelHwnd ||
+                (WardrobeHwnd != IntPtr.Zero && hwnd == WardrobeHwnd) ||
+                (TreeDecoratorHwnd != IntPtr.Zero && hwnd == TreeDecoratorHwnd))
                 return;
 
             if (eventType == NativeMethods.EVENT_SYSTEM_FOREGROUND ||
@@ -2678,11 +3248,14 @@ namespace SnowyWindows
             }
             _snowballs.Clear();
             _snowmen.Clear();
+            _trees.Clear();
             _campfires.Clear();
             _gifts.Clear();
             _penguins.Clear();
             for (int c = 0; c < 4; c++) _cornerFrost[c] = 0f;
+            for (int i = 0; i < _confetti.Length; i++) _confetti[i].Active = false;
             CloseWardrobeIfOpen();
+            CloseTreeDecoratorIfOpen();
             for (int i = 0; i < _plows.Count; i++)
                 ShedPlowMound(_plows[i], 1f);
         }
@@ -2742,10 +3315,140 @@ namespace SnowyWindows
             _penguins.RemoveAt(idx);
         }
 
+        public void SpawnChristmasTree(bool onTaskbarOnly)
+        {
+            if (_trees.Count >= 6)
+                _trees.RemoveAt(0);
+
+            WindowSurface target = null;
+            if (!onTaskbarOnly)
+            {
+                for (int i = 0; i < _orderedSurfaces.Count; i++)
+                {
+                    WindowSurface cand = _orderedSurfaces[i];
+                    if (!cand.IsTaskbar && !cand.IsMaximized && !IsOccludedByFrontWindow(cand.Left + cand.Width * 0.5f, cand.Top, cand.ZOrder))
+                    {
+                        target = cand;
+                        break;
+                    }
+                }
+            }
+            if (target == null)
+            {
+                for (int i = 0; i < _orderedSurfaces.Count; i++)
+                {
+                    if (_orderedSurfaces[i].IsTaskbar) { target = _orderedSurfaces[i]; break; }
+                }
+            }
+            if (target == null && _orderedSurfaces.Count > 0)
+                target = _orderedSurfaces[_orderedSurfaces.Count - 1];
+
+            if (target != null)
+            {
+                float x = onTaskbarOnly
+                    ? Math.Max(target.Left + 85f, target.Right - 140f)
+                    : (target.Left + 75f + (float)_rng.NextDouble() * Math.Max(40f, target.Width - 150f));
+                ChristmasTreeEntity tree = new ChristmasTreeEntity(x, target.Top, target.Hwnd, _rng);
+                _trees.Add(tree);
+                if (!onTaskbarOnly)
+                {
+                    BurstSnowSparkles(x, target.Top - 45f, 22);
+                    if (SoundEnabled) _audioSynth.PlayGiftOpen();
+                    SaveTreesNow();
+                }
+            }
+        }
+
+        public void RemoveLastChristmasTree()
+        {
+            if (_trees.Count == 0) return;
+            DeleteChristmasTree(_trees[_trees.Count - 1]);
+        }
+
+        public void DeleteChristmasTree(ChristmasTreeEntity tree)
+        {
+            if (tree == null) return;
+            int idx = _trees.IndexOf(tree);
+            if (idx >= 0)
+            {
+                BurstSnowSparkles(tree.X, tree.Y - 40f * tree.Scale, 28);
+                if (_draggedTree == tree) _draggedTree = null;
+                for (int b = 0; b < _birds.Count; b++)
+                {
+                    if (_birds[b].PerchedTree == tree)
+                    {
+                        _birds[b].PerchedTree = null;
+                        _birds[b].State = 1;
+                    }
+                }
+                _trees.RemoveAt(idx);
+                SaveTreesNow();
+            }
+            if (_treeDecoratorForm != null && !_treeDecoratorForm.IsDisposed && _treeDecoratorForm.TargetTree == tree)
+                CloseTreeDecoratorIfOpen();
+        }
+
+        public void OpenTreeDecorator(ChristmasTreeEntity tree)
+        {
+            if (tree == null) return;
+            if (_treeDecoratorForm == null || _treeDecoratorForm.IsDisposed)
+            {
+                _treeDecoratorForm = new TreeDecoratorForm(this, tree);
+                _treeDecoratorForm.FormClosed += (s, e) =>
+                {
+                    TreeDecoratorHwnd = IntPtr.Zero;
+                    _treeDecoratorForm = null;
+                    SaveTreesNow();
+                };
+                _treeDecoratorForm.Show();
+                TreeDecoratorHwnd = _treeDecoratorForm.Handle;
+            }
+            else
+            {
+                _treeDecoratorForm.SetTargetTree(tree);
+                if (!_treeDecoratorForm.Visible) _treeDecoratorForm.Show();
+                _treeDecoratorForm.Activate();
+                TreeDecoratorHwnd = _treeDecoratorForm.Handle;
+            }
+
+            int screenTx = _originX + (int)tree.X;
+            int screenTy = _originY + (int)(tree.Y - tree.TotalHeight * 0.5f);
+            Screen scr = Screen.FromPoint(new Point(screenTx, screenTy));
+            Rectangle wa = scr.WorkingArea;
+
+            int wx = screenTx + (int)tree.HalfWidth + 24;
+            if (wx + _treeDecoratorForm.Width > wa.Right - 12)
+                wx = screenTx - _treeDecoratorForm.Width - (int)tree.HalfWidth - 24;
+            wx = Math.Max(wa.Left + 12, Math.Min(wa.Right - _treeDecoratorForm.Width - 12, wx));
+
+            int wy = screenTy - _treeDecoratorForm.Height / 2;
+            wy = Math.Max(wa.Top + 12, Math.Min(wa.Bottom - _treeDecoratorForm.Height - 12, wy));
+
+            _treeDecoratorForm.Location = new Point(wx, wy);
+            _treeDecoratorForm.BringToFront();
+        }
+
+        private void CloseTreeDecoratorIfOpen()
+        {
+            if (_treeDecoratorForm != null && !_treeDecoratorForm.IsDisposed)
+                _treeDecoratorForm.Close();
+            TreeDecoratorHwnd = IntPtr.Zero;
+            _treeDecoratorForm = null;
+        }
+
         public void SaveSnowmenNow()
         {
             if (RememberSnowmen)
+            {
                 SnowmenStore.Save(_snowmen, Math.Max(1, _screenW));
+                TreesStore.Save(_trees, Math.Max(1, _screenW));
+            }
+        }
+
+        public void SaveTreesNow()
+        {
+            if (RememberSnowmen)
+                TreesStore.Save(_trees, Math.Max(1, _screenW));
         }
 
         public void RestoreSavedSnowmen()
@@ -2771,10 +3474,244 @@ namespace SnowyWindows
             }
         }
 
+        public void RestoreSavedTrees()
+        {
+            List<ChristmasTreeEntity> loaded = TreesStore.Load(Math.Max(1, _screenW), _rng);
+            if (loaded == null || loaded.Count == 0) return;
+            WindowSurface tb = null;
+            for (int i = 0; i < _orderedSurfaces.Count; i++)
+            {
+                if (_orderedSurfaces[i].IsTaskbar) { tb = _orderedSurfaces[i]; break; }
+            }
+            if (tb == null && _orderedSurfaces.Count > 0)
+                tb = _orderedSurfaces[_orderedSurfaces.Count - 1];
+            if (tb == null) return;
+
+            for (int i = 0; i < loaded.Count; i++)
+            {
+                ChristmasTreeEntity tr = loaded[i];
+                tr.X = Math.Max(tb.Left + 52f, Math.Min(tb.Right - 52f, tr.X));
+                tr.Y = tb.Top;
+                tr.SurfaceHwnd = tb.Hwnd;
+                _trees.Add(tr);
+            }
+        }
+
+        public void EnsureWinterBirdsCount()
+        {
+            if (!BirdsEnabled)
+            {
+                _birds.Clear();
+                return;
+            }
+            int targetCount = 3;
+            while (_birds.Count < targetCount)
+            {
+                float bx = (_rng.Next(2) == 0) ? -24f : (_screenW + 24f);
+                float by = 80f + (float)_rng.NextDouble() * Math.Max(120f, _screenH * 0.45f);
+                int sp = (_birds.Count % 2 == 0) ? 0 : 1; // Kızılgerdan & Kar Baykuşu karışık
+                WinterBirdEntity bird = new WinterBirdEntity(bx, by, sp, _rng);
+                AssignNewBirdPerch(bird);
+                _birds.Add(bird);
+            }
+        }
+
+        public void TriggerMidnightCelebration()
+        {
+            _celebrationYear = (DateTime.Now.Month == 1 && DateTime.Now.Day <= 2)
+                ? DateTime.Now.Year
+                : (DateTime.Now.Year + 1);
+            _celebrationBannerTicks = 60 * 7; // 7 saniyelik parlak kutlama pankartı
+            _fireworkShowRemaining = Math.Max(_fireworkShowRemaining, 14);
+            _fireworkShowTimer = 1;
+            _auroraSurge = 1.0f;
+
+            // Ekranın üstünden rengarenk konfeti yağmuru başlat
+            SpawnConfettiBurst(_screenW * 0.25f, _screenH * 0.22f, 55);
+            SpawnConfettiBurst(_screenW * 0.50f, _screenH * 0.18f, 70);
+            SpawnConfettiBurst(_screenW * 0.75f, _screenH * 0.22f, 55);
+
+            // Kardan adamlar & penguenler neşeyle zıplasın, ağaçlar sallansın
+            for (int i = 0; i < _snowmen.Count; i++)
+            {
+                _snowmen[i].Vy = -6.2f;
+                _snowmen[i].SurfaceHwnd = IntPtr.Zero;
+                _snowmen[i].TiltVel += (i % 2 == 0 ? 10f : -10f);
+            }
+            for (int i = 0; i < _trees.Count; i++)
+                _trees[i].WobbleVel += (i % 2 == 0 ? 4.5f : -4.5f);
+            for (int i = 0; i < _penguins.Count; i++)
+            {
+                _penguins[i].Vy = -5.8f;
+                _penguins[i].HopTimer = 28;
+            }
+            if (SoundEnabled) _audioSynth.PlayJingleBells();
+        }
+
+        public void TriggerSnowglobeShake()
+        {
+            _shakeVortexTimer = 95;
+            // Her pencerenin üstündeki karın bir kısmını havaya savur (kar küresi sarsıntısı!)
+            foreach (WindowSurface surf in _surfaces.Values)
+            {
+                if (surf.Heights == null || surf.MaxH < 2f) continue;
+                int n = surf.Heights.Length;
+                int step = Math.Max(2, n / 28);
+                for (int i = 0; i < n; i += step)
+                {
+                    if (surf.Heights[i] > 1.8f)
+                    {
+                        float lifted = surf.Heights[i] * 0.34f;
+                        surf.Heights[i] -= lifted;
+                        SpawnChunk(
+                            surf.Left + i * WindowSurface.BinSize,
+                            surf.Top - surf.Heights[i] - 2f,
+                            (float)(_rng.NextDouble() * 9.0 - 4.5),
+                            -4.5f - (float)_rng.NextDouble() * 6.5f,
+                            2.2f + (float)_rng.NextDouble() * 2.4f,
+                            lifted * 0.6f,
+                            85 + _rng.Next(45),
+                            true,
+                            Color.White);
+                    }
+                }
+            }
+            for (int i = 0; i < _snowmen.Count; i++)
+                _snowmen[i].TiltVel += (float)(_rng.NextDouble() * 14.0 - 7.0);
+            for (int i = 0; i < _trees.Count; i++)
+                _trees[i].WobbleVel += (float)(_rng.NextDouble() * 7.0 - 3.5);
+            for (int i = 0; i < _penguins.Count; i++)
+            {
+                _penguins[i].Vy = -5.2f;
+                _penguins[i].SurfaceHwnd = IntPtr.Zero;
+            }
+            if (SoundEnabled) _audioSynth.PlayJingleBells();
+            ShowToast(IsEnglish ? "🔮 Snowglobe Shaken!" : "🔮 Kar Küresi Sallandı!");
+        }
+
+        public void CaptureWinterPostcard()
+        {
+            try
+            {
+                Rectangle bounds = Screen.PrimaryScreen.Bounds;
+                using (Bitmap shot = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb))
+                using (Graphics g = Graphics.FromImage(shot))
+                {
+                    g.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size, CopyPixelOperation.SourceCopy | CopyPixelOperation.CaptureBlt);
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+
+                    // Zarif ince buzlu kış kartpostalı çerçevesi & köşe damgası
+                    using (Pen outerRim = new Pen(Color.FromArgb(145, 224, 242, 254), 10f))
+                        g.DrawRectangle(outerRim, 5, 5, bounds.Width - 10, bounds.Height - 10);
+                    using (Pen innerRim = new Pen(Color.FromArgb(180, 56, 189, 248), 2f))
+                        g.DrawRectangle(innerRim, 14, 14, bounds.Width - 28, bounds.Height - 28);
+
+                    string stamp = "❄️ Snowy for Windows  •  " + DateTime.Now.ToString("dd.MM.yyyy");
+                    using (Font f = new Font("Segoe UI Semibold", 11f, FontStyle.Bold))
+                    {
+                        SizeF sz = g.MeasureString(stamp, f);
+                        float pw = sz.Width + 22f;
+                        float ph = sz.Height + 12f;
+                        float px = bounds.Width - pw - 26f;
+                        float py = bounds.Height - ph - 26f;
+                        RectangleF badge = new RectangleF(px, py, pw, ph);
+                        using (GraphicsPath bp = GraphicsExt.CreateRoundedRect(badge, 10f))
+                        using (SolidBrush bg = new SolidBrush(Color.FromArgb(195, 11, 17, 30)))
+                        using (Pen rim = new Pen(Color.FromArgb(180, 56, 189, 248), 1.3f))
+                        using (SolidBrush txt = new SolidBrush(Color.FromArgb(245, 224, 242, 254)))
+                        {
+                            g.FillPath(bg, bp);
+                            g.DrawPath(rim, bp);
+                            g.DrawString(stamp, f, txt, px + 11f, py + 6f);
+                        }
+                    }
+
+                    string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                    if (string.IsNullOrEmpty(desktop) || !System.IO.Directory.Exists(desktop))
+                        desktop = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+                    string fileName = "SnowyPostcard_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
+                    string fullPath = System.IO.Path.Combine(desktop, fileName);
+                    shot.Save(fullPath, ImageFormat.Png);
+                }
+                if (SoundEnabled) _audioSynth.PlayGiftOpen();
+                ShowToast(IsEnglish ? "📸 Winter Postcard saved to Desktop!" : "📸 Kış Kartpostalı Masaüstüne kaydedildi!");
+            }
+            catch
+            {
+                ShowToast(IsEnglish ? "⚠️ Could not save postcard." : "⚠️ Kartpostal kaydedilemedi.");
+            }
+        }
+
+        public void ShowToast(string message)
+        {
+            _toastText = message ?? "";
+            _toastTicks = 175;
+        }
+
+        private void SpawnConfettiBurst(float x, float y, int count)
+        {
+            Color[] palette = new Color[]
+            {
+                Color.FromArgb(255, 250, 204, 21),
+                Color.FromArgb(255, 56, 189, 248),
+                Color.FromArgb(255, 244, 114, 182),
+                Color.FromArgb(255, 52, 211, 153),
+                Color.FromArgb(255, 248, 113, 113),
+                Color.FromArgb(255, 168, 85, 247)
+            };
+            int spawned = 0;
+            for (int i = 0; i < _confetti.Length && spawned < count; i++)
+            {
+                if (_confetti[i].Active) continue;
+                double a = _rng.NextDouble() * Math.PI * 2.0;
+                float spd = 2.0f + (float)_rng.NextDouble() * 6.5f;
+                int ttl = 140 + _rng.Next(90);
+                _confetti[i].Active = true;
+                _confetti[i].X = x + (float)(_rng.NextDouble() * 24.0 - 12.0);
+                _confetti[i].Y = y + (float)(_rng.NextDouble() * 24.0 - 12.0);
+                _confetti[i].Vx = (float)Math.Cos(a) * spd;
+                _confetti[i].Vy = (float)Math.Sin(a) * spd - 3.0f;
+                _confetti[i].Angle = (float)(_rng.NextDouble() * 360.0);
+                _confetti[i].Spin = (float)(_rng.NextDouble() * 14.0 - 7.0);
+                _confetti[i].Size = 4.5f + (float)_rng.NextDouble() * 4.5f;
+                _confetti[i].Ttl = ttl;
+                _confetti[i].MaxTtl = ttl;
+                _confetti[i].Color = palette[_rng.Next(palette.Length)];
+                spawned++;
+            }
+        }
+
+        private void SpawnMagicSparkle(float x, float y, bool isRing)
+        {
+            for (int i = 0; i < _magicSparkles.Length; i++)
+            {
+                if (_magicSparkles[i].Active) continue;
+                int ttl = isRing ? 22 : (26 + _rng.Next(20));
+                _magicSparkles[i].Active = true;
+                _magicSparkles[i].X = x;
+                _magicSparkles[i].Y = y;
+                _magicSparkles[i].Vx = isRing ? 0f : (float)(_rng.NextDouble() * 1.4 - 0.7);
+                _magicSparkles[i].Vy = isRing ? 0f : (0.25f + (float)_rng.NextDouble() * 0.9f);
+                _magicSparkles[i].Size = isRing ? 4f : (2.2f + (float)_rng.NextDouble() * 2.8f);
+                _magicSparkles[i].Ttl = ttl;
+                _magicSparkles[i].MaxTtl = ttl;
+                _magicSparkles[i].IsRing = isRing;
+                int c = _rng.Next(3);
+                _magicSparkles[i].Color = c == 0
+                    ? Color.FromArgb(255, 186, 230, 253)
+                    : (c == 1 ? Color.FromArgb(255, 255, 255, 255) : Color.FromArgb(255, 253, 224, 71));
+                return;
+            }
+        }
+
         public void ShutdownExtras()
         {
             if (RememberSnowmen)
+            {
                 SnowmenStore.Save(_snowmen, Math.Max(1, _screenW));
+                TreesStore.Save(_trees, Math.Max(1, _screenW));
+            }
+            CloseTreeDecoratorIfOpen();
             _audioSynth.Dispose();
             _audioMeter.Dispose();
         }
@@ -3065,6 +4002,8 @@ namespace SnowyWindows
         {
             if (_wardrobeForm != null && !_wardrobeForm.IsDisposed)
                 _wardrobeForm.ApplyLanguage();
+            if (_treeDecoratorForm != null && !_treeDecoratorForm.IsDisposed)
+                _treeDecoratorForm.ApplyLanguage();
         }
 
         public void SpawnCampfire()
@@ -3342,11 +4281,14 @@ namespace SnowyWindows
             IntPtr myHwnd = Handle;
             IntPtr panelHwnd = ControlPanelHwnd;
             IntPtr wardrobeHwnd = WardrobeHwnd;
+            IntPtr treeDecHwnd = TreeDecoratorHwnd;
             int zCounter = 0;
 
             NativeMethods.EnumWindows((hWnd, lParam) =>
             {
-                if (hWnd == myHwnd || hWnd == panelHwnd || (wardrobeHwnd != IntPtr.Zero && hWnd == wardrobeHwnd)) return true;
+                if (hWnd == myHwnd || hWnd == panelHwnd ||
+                    (wardrobeHwnd != IntPtr.Zero && hWnd == wardrobeHwnd) ||
+                    (treeDecHwnd != IntPtr.Zero && hWnd == treeDecHwnd)) return true;
                 if (!NativeMethods.IsWindowVisible(hWnd) || NativeMethods.IsIconic(hWnd)) return true;
 
                 int cloaked = 0;
@@ -3597,6 +4539,27 @@ namespace SnowyWindows
                     p.Y = surf.Top;
                 }
             }
+
+            for (int i = 0; i < _trees.Count; i++)
+            {
+                ChristmasTreeEntity tr = _trees[i];
+                if (tr.SurfaceHwnd == surf.Hwnd && !tr.Dragging)
+                {
+                    tr.X = Math.Max(surf.Left + 24f, Math.Min(surf.Right - 24f, tr.X + dx));
+                    tr.Y = surf.Top;
+                    tr.WobbleVel -= Math.Max(-4.5f, Math.Min(4.5f, dx * 0.35f));
+                }
+            }
+
+            for (int i = 0; i < _birds.Count; i++)
+            {
+                WinterBirdEntity b = _birds[i];
+                if (b.State == 0 && b.PerchedTree == null && b.SurfaceHwnd == surf.Hwnd)
+                {
+                    b.X = Math.Max(surf.Left + 14f, Math.Min(surf.Right - 14f, b.X + dx));
+                    b.Y = surf.Top;
+                }
+            }
         }
 
         private void SpillEntireSurfaceToPhysicalChunks(WindowSurface surf, float boostVx, float boostVy)
@@ -3718,15 +4681,28 @@ namespace SnowyWindows
                 return;
             }
 
-            // Sağ tık: Kardan adama sağ tık -> Modern Gardırop Penceresi aç! Diğer nesneleri sil / hediye aç
+            // Sağ tık: Kardan adama sağ tık -> Gardırop, Yılbaşı Ağacına sağ tık -> Süsleme Penceresi!
             if (e.Button == MouseButtons.Right)
             {
+                if (CountdownEnabled && IsPointInsideCountdownWidget(e.X, e.Y))
+                {
+                    TriggerMidnightCelebration();
+                    return;
+                }
                 for (int i = _snowmen.Count - 1; i >= 0; i--)
                 {
                     SnowmanEntity sm = _snowmen[i];
                     if (Math.Abs(e.X - sm.X) <= sm.R1 * 1.75f && e.Y <= sm.Y + 10f && e.Y >= sm.Y - (sm.R1 + sm.R2 + sm.R3) * 2.25f)
                     {
                         OpenSnowmanWardrobe(sm);
+                        return;
+                    }
+                }
+                for (int i = _trees.Count - 1; i >= 0; i--)
+                {
+                    if (_trees[i].HitTest(e.X, e.Y))
+                    {
+                        OpenTreeDecorator(_trees[i]);
                         return;
                     }
                 }
@@ -3773,6 +4749,38 @@ namespace SnowyWindows
             }
 
             if (e.Button != MouseButtons.Left) return;
+
+            if (CursorTrailEnabled)
+                SpawnMagicSparkle(e.X, e.Y, true);
+
+            // -1.2. Öncelik: Geri Sayım Widget'ını tutup ekranda taşı
+            if (CountdownEnabled && IsPointInsideCountdownWidget(e.X, e.Y))
+            {
+                EnsureCountdownPos();
+                _draggingCountdown = true;
+                _countdownDragOffset = new PointF(e.X - _countdownX, e.Y - _countdownY);
+                return;
+            }
+
+            // -1.1. Öncelik: Süzülen Dilek Fenerine tıklayınca altın dilek parıltısı patlasın!
+            if (LanternsEnabled)
+            {
+                for (int i = 0; i < _lanterns.Length; i++)
+                {
+                    if (!_lanterns[i].Active) continue;
+                    if (Math.Abs(e.X - _lanterns[i].X) <= 18f * _lanterns[i].Scale && Math.Abs(e.Y - _lanterns[i].Y) <= 22f * _lanterns[i].Scale)
+                    {
+                        float lx = _lanterns[i].X;
+                        float ly = _lanterns[i].Y;
+                        _lanterns[i].Active = false;
+                        for (int k = 0; k < 18; k++)
+                            SpawnSantaSparkle(lx, ly, (float)(_rng.NextDouble() * 4.4 - 2.2), (float)(_rng.NextDouble() * 4.4 - 2.6));
+                        if (SoundEnabled) _audioSynth.PlayGiftOpen();
+                        SpawnPopupText(lx, ly - 16f, IsEnglish ? "🏮 WISH GRANTED!" : "🏮 DİLEK TUTULDU!", Color.FromArgb(255, 253, 224, 71));
+                        return;
+                    }
+                }
+            }
 
             // -1. Öncelik: Noel Baba'nın bıraktığı Hediye Paketine sol tıklayınca patlatarak aç!
             for (int i = _gifts.Count - 1; i >= 0; i--)
@@ -3868,6 +4876,21 @@ namespace SnowyWindows
                 }
             }
 
+            // 3.5. Öncelik: Yılbaşı Ağacını tut ve taşı / başka pencereye yerleştir
+            for (int i = _trees.Count - 1; i >= 0; i--)
+            {
+                ChristmasTreeEntity tr = _trees[i];
+                if (tr.HitTest(e.X, e.Y))
+                {
+                    tr.Dragging = true;
+                    tr.SurfaceHwnd = IntPtr.Zero;
+                    tr.Vx = 0f;
+                    tr.Vy = 0f;
+                    _draggedTree = tr;
+                    return;
+                }
+            }
+
             // 4. Öncelik: Pencere üstündeki kar yığınına tıklandıysa yeni bir kartopu oluşturup yuvarlamaya başla!
             for (int i = 0; i < _orderedSurfaces.Count; i++)
             {
@@ -3897,6 +4920,22 @@ namespace SnowyWindows
         {
             if (!InteractiveMode) return;
             RecordMousePosition(e.X, e.Y);
+
+            if (_draggingCountdown)
+            {
+                _countdownX = Math.Max(8f, Math.Min(_screenW - 224f, e.X - _countdownDragOffset.X));
+                _countdownY = Math.Max(8f, Math.Min(_screenH - 76f, e.Y - _countdownDragOffset.Y));
+                return;
+            }
+
+            if (_draggedTree != null)
+            {
+                _draggedTree.X = e.X;
+                _draggedTree.Y = e.Y + _draggedTree.TotalHeight * 0.42f;
+                _draggedTree.Vx = 0f;
+                _draggedTree.Vy = 0f;
+                return;
+            }
 
             if (_draggedPenguin != null)
             {
@@ -4049,6 +5088,23 @@ namespace SnowyWindows
                 return;
             }
 
+            if (_draggingCountdown)
+            {
+                _draggingCountdown = false;
+                return;
+            }
+
+            if (_draggedTree != null)
+            {
+                _draggedTree.Dragging = false;
+                _draggedTree.Vx = throwVx * 0.55f;
+                _draggedTree.Vy = throwVy * 0.55f;
+                _draggedTree.WobbleVel += Math.Max(-8f, Math.Min(8f, throwVx * 0.6f));
+                _draggedTree = null;
+                SaveTreesNow();
+                return;
+            }
+
             if (_draggedSnowman != null)
             {
                 _draggedSnowman.Dragging = false;
@@ -4082,6 +5138,25 @@ namespace SnowyWindows
         {
             if (sb.Dragging) return false;
             float speed = (float)Math.Sqrt(sb.Vx * sb.Vx + sb.Vy * sb.Vy);
+
+            // 0) Yılbaşı Ağacına çarpan kartopu ağacı neşeyle sallar ve dallardan kar döker!
+            if (speed >= 3.2f && !sb.IsAiSnowball)
+            {
+                for (int i = _trees.Count - 1; i >= 0; i--)
+                {
+                    ChristmasTreeEntity tr = _trees[i];
+                    if (tr.Dragging || tr.HitCooldown > 0) continue;
+                    if (tr.HitTest(sb.X, sb.Y - sb.BaseRadius))
+                    {
+                        tr.WobbleVel += (sb.Vx >= 0f ? 6.5f : -6.5f);
+                        tr.HitCooldown = 25;
+                        BurstSnowSparkles(sb.X, sb.Y - sb.BaseRadius, 22);
+                        if (SoundEnabled) _audioSynth.PlaySnowHit();
+                        _snowballs.Remove(sb);
+                        return true;
+                    }
+                }
+            }
 
             // A) 2 katlı kartopu istifine hızlı bir kartopu çarptıysa: üstteki topu devirip 2 ayrı kartopuna ayır!
             if (speed >= 6.2f && sb.StackCount == 1)
@@ -4639,12 +5714,19 @@ namespace SnowyWindows
             if (f6Down && !_f6WasDown)
                 TriggerSurpriseShow();
             _f6WasDown = f6Down;
+
+            bool f10Down = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_F10) & 0x8000) != 0;
+            if (f10Down && !_f10WasDown)
+                CaptureWinterPostcard();
+            _f10WasDown = f10Down;
         }
 
         private void UpdatePhysics()
         {
             _frameCount++;
             _time += (float)PhysicsStep;
+            if (_toastTicks > 0) _toastTicks--;
+            if (_shakeVortexTimer > 0) _shakeVortexTimer--;
 
             // Doğal rüzgar: farklı hızlarda üst üste binen sinüslerle rüzgar hamleleri (gust)
             float gust = 0f;
@@ -4659,8 +5741,9 @@ namespace SnowyWindows
             float windVx = effNx * (BlizzardMode ? 8.8f : 6.8f);
             float windVy = WindNy * (BlizzardMode ? 3.8f : 2.1f) + (BlizzardMode ? 1.35f : 0f);
             int activeCount = GetActiveFlakeCount();
+            float vortexPower = _shakeVortexTimer > 0 ? (_shakeVortexTimer / 95f) : 0f;
 
-            // 1. Yağan Kar Taneleri (hafif taneler rüzgara çabuk uyar, türbülans + salınım)
+            // 1. Yağan Kar Taneleri (hafif taneler rüzgara çabuk uyar, türbülans + salınım + kar küresi girdabı)
             for (int i = 0; i < activeCount; i++)
             {
                 Snowflake f = _flakes[i];
@@ -4674,10 +5757,21 @@ namespace SnowyWindows
                 f.Vx = f.Vx * (1f - follow) + (windVx * f.SpeedMult + flutter + turb) * follow;
                 f.Vy = Math.Max(0.75f, 1.48f * f.SpeedMult + windVy + (float)Math.Sin(f.Phase * 0.5f) * 0.12f);
 
+                if (vortexPower > 0.01f)
+                {
+                    float vdx = f.X - _screenW * 0.5f;
+                    float vdy = f.Y - _screenH * 0.5f;
+                    float vdist = (float)Math.Sqrt(vdx * vdx + vdy * vdy) + 40f;
+                    // Saat yönünde dönen girdap + hafif yukarı kaldırma
+                    f.Vx += (-vdy / vdist) * 5.8f * vortexPower;
+                    f.Vy += (vdx / vdist) * 2.6f * vortexPower - 2.2f * vortexPower;
+                }
+
                 float nx = f.X + f.Vx;
                 if (nx < 0) nx += _screenW;
                 else if (nx >= _screenW) nx -= _screenW;
                 float ny = f.Y + f.Vy;
+                if (ny < -8f) ny = -8f;
 
                 bool landed = false;
                 for (int sIdx = 0; sIdx < _orderedSurfaces.Count; sIdx++)
@@ -5309,12 +6403,401 @@ namespace SnowyWindows
             UpdateSnowmanAiFight();
             UpdateCornerFrost();
             UpdatePolarExpressTrain(windVx);
+            UpdateTreesPhysics();
+            UpdateLanternsPhysics(windVx);
+            UpdateWinterBirdsPhysics();
+            UpdateCursorTrailAndMouseShake();
+            UpdateCountdownAndConfetti(windVx);
 
-            // Gardırop penceresi açıkken hedef kardan adam silindiyse pencereyi kapat
+            // Gardırop veya Ağaç Süsleme penceresi açıkken hedef nesne silindiyse kapat
             if (_wardrobeForm != null && !_wardrobeForm.IsDisposed &&
                 _wardrobeForm.TargetSnowman != null && !_snowmen.Contains(_wardrobeForm.TargetSnowman))
             {
                 CloseWardrobeIfOpen();
+            }
+            if (_treeDecoratorForm != null && !_treeDecoratorForm.IsDisposed &&
+                _treeDecoratorForm.TargetTree != null && !_trees.Contains(_treeDecoratorForm.TargetTree))
+            {
+                CloseTreeDecoratorIfOpen();
+            }
+        }
+
+        private void EnsureCountdownPos()
+        {
+            if (_countdownX < 0f)
+            {
+                _countdownX = Math.Max(20f, _screenW - 246f);
+                _countdownY = 26f;
+            }
+        }
+
+        private bool IsPointInsideCountdownWidget(float px, float py)
+        {
+            EnsureCountdownPos();
+            return px >= _countdownX && px <= _countdownX + 216f && py >= _countdownY && py <= _countdownY + 66f;
+        }
+
+        private void UpdateTreesPhysics()
+        {
+            for (int i = 0; i < _trees.Count; i++)
+            {
+                ChristmasTreeEntity tr = _trees[i];
+                if (tr.HitCooldown > 0) tr.HitCooldown--;
+
+                // Yaylı zarif sallanma fiziği
+                tr.WobbleVel += -tr.WobbleAngle * 0.14f;
+                tr.WobbleVel *= 0.85f;
+                tr.WobbleAngle += tr.WobbleVel;
+                if (Math.Abs(tr.WobbleAngle) > 22f)
+                    tr.WobbleAngle = Math.Sign(tr.WobbleAngle) * 22f;
+
+                if (tr.Dragging) continue;
+
+                WindowSurface surf = null;
+                if (tr.SurfaceHwnd != IntPtr.Zero)
+                    _surfaces.TryGetValue(tr.SurfaceHwnd, out surf);
+
+                if (surf != null && !surf.IsMaximized)
+                {
+                    tr.Y = surf.Top;
+                    if (tr.X < surf.Left + 18f || tr.X > surf.Right - 18f)
+                        tr.SurfaceHwnd = IntPtr.Zero;
+                }
+                else
+                {
+                    tr.SurfaceHwnd = IntPtr.Zero;
+                    float prevY = tr.Y;
+                    tr.X += tr.Vx;
+                    tr.Y += tr.Vy;
+                    tr.Vy += 0.42f;
+                    tr.Vx *= 0.96f;
+
+                    if (tr.X < 36f) { tr.X = 36f; tr.Vx = -tr.Vx * 0.4f; }
+                    else if (tr.X > _screenW - 36f) { tr.X = _screenW - 36f; tr.Vx = -tr.Vx * 0.4f; }
+
+                    if (tr.Vy > 0f)
+                    {
+                        for (int sIdx = 0; sIdx < _orderedSurfaces.Count; sIdx++)
+                        {
+                            WindowSurface s = _orderedSurfaces[sIdx];
+                            if (s.IsMaximized) continue;
+                            if (tr.X >= s.Left + 24f && tr.X <= s.Right - 24f &&
+                                prevY <= s.Top + 14f && tr.Y >= s.Top &&
+                                !IsOccludedByFrontWindow(tr.X, s.Top, s.ZOrder))
+                            {
+                                tr.SurfaceHwnd = s.Hwnd;
+                                tr.Y = s.Top;
+                                tr.Vx = 0f;
+                                tr.Vy = 0f;
+                                tr.WobbleVel += 2.5f;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (tr.Y >= _screenH - 2f && tr.SurfaceHwnd == IntPtr.Zero)
+                    {
+                        WindowSurface tb = _orderedSurfaces.Count > 0 ? _orderedSurfaces[_orderedSurfaces.Count - 1] : null;
+                        if (tb != null)
+                        {
+                            tr.SurfaceHwnd = tb.Hwnd;
+                            tr.Y = tb.Top;
+                            tr.Vx = 0f;
+                            tr.Vy = 0f;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void UpdateLanternsPhysics(float windVx)
+        {
+            if (LanternsEnabled && !PerformanceMode)
+            {
+                _lanternSpawnCooldown--;
+                if (_lanternSpawnCooldown <= 0)
+                {
+                    _lanternSpawnCooldown = 110 + _rng.Next(130);
+                    for (int i = 0; i < _lanterns.Length; i++)
+                    {
+                        if (_lanterns[i].Active) continue;
+                        _lanterns[i].Active = true;
+                        _lanterns[i].X = 60f + (float)_rng.NextDouble() * Math.Max(120f, _screenW - 120f);
+                        _lanterns[i].Y = _screenH + 24f;
+                        _lanterns[i].Vy = -(0.52f + (float)_rng.NextDouble() * 0.45f);
+                        _lanterns[i].SwayPhase = (float)(_rng.NextDouble() * Math.PI * 2.0);
+                        _lanterns[i].FlickerPhase = (float)(_rng.NextDouble() * Math.PI * 2.0);
+                        _lanterns[i].Scale = 0.68f + (float)_rng.NextDouble() * 0.52f;
+                        _lanterns[i].WarmHue = _rng.Next(3);
+                        break;
+                    }
+                }
+            }
+
+            for (int i = 0; i < _lanterns.Length; i++)
+            {
+                if (!_lanterns[i].Active) continue;
+                WishLantern l = _lanterns[i];
+                l.SwayPhase += 0.028f;
+                l.FlickerPhase += 0.14f;
+                l.X += windVx * 0.14f + (float)Math.Sin(l.SwayPhase) * 0.42f;
+                l.Y += l.Vy;
+                if (l.X < -40f) l.X = _screenW + 30f;
+                else if (l.X > _screenW + 40f) l.X = -30f;
+                if (l.Y < -50f || !LanternsEnabled)
+                    l.Active = false;
+                _lanterns[i] = l;
+            }
+        }
+
+        private void AssignNewBirdPerch(WinterBirdEntity bird)
+        {
+            bird.PerchedTree = null;
+            bird.SurfaceHwnd = IntPtr.Zero;
+            bird.State = 1;
+
+            // %45 ihtimalle varsa bir Yılbaşı Ağacının dalına kon!
+            if (_trees.Count > 0 && _rng.Next(100) < 48)
+            {
+                ChristmasTreeEntity tr = _trees[_rng.Next(_trees.Count)];
+                PointF off = tr.GetPerchOffset(_rng.Next(3));
+                bird.PerchedTree = tr;
+                bird.TreeOffsetX = off.X;
+                bird.TreeOffsetY = off.Y;
+                bird.TargetX = tr.X + off.X;
+                bird.TargetY = tr.Y + off.Y;
+                bird.Direction = (bird.TargetX >= bird.X) ? 1 : -1;
+                return;
+            }
+
+            // Değilse açık bir pencere üstüne veya görev çubuğuna kon
+            List<WindowSurface> cands = new List<WindowSurface>();
+            for (int i = 0; i < _orderedSurfaces.Count; i++)
+            {
+                WindowSurface s = _orderedSurfaces[i];
+                if (!s.IsMaximized && s.Width >= 140)
+                    cands.Add(s);
+            }
+            if (cands.Count > 0)
+            {
+                WindowSurface chosen = cands[_rng.Next(cands.Count)];
+                float tx = chosen.Left + 36f + (float)_rng.NextDouble() * Math.Max(30f, chosen.Width - 72f);
+                bird.SurfaceHwnd = chosen.Hwnd;
+                bird.TargetX = tx;
+                bird.TargetY = chosen.Top;
+                bird.Direction = (bird.TargetX >= bird.X) ? 1 : -1;
+            }
+            else
+            {
+                bird.TargetX = 100f + (float)_rng.NextDouble() * Math.Max(100f, _screenW - 200f);
+                bird.TargetY = Math.Max(80f, _screenH - 55f);
+            }
+        }
+
+        private void UpdateWinterBirdsPhysics()
+        {
+            if (!BirdsEnabled)
+            {
+                if (_birds.Count > 0) _birds.Clear();
+                return;
+            }
+            if (_birds.Count < 3 && (_frameCount % 90 == 0))
+                EnsureWinterBirdsCount();
+
+            Point cur = _lastCursorPos;
+            for (int i = 0; i < _birds.Count; i++)
+            {
+                WinterBirdEntity b = _birds[i];
+                b.LookPhase += 0.05f;
+
+                if (b.State == 0)
+                {
+                    // Konmuş durum: pencereyi veya yılbaşı ağacını takip et
+                    b.StateTimer--;
+                    if (b.PerchedTree != null)
+                    {
+                        if (!_trees.Contains(b.PerchedTree) || b.PerchedTree.Dragging)
+                        {
+                            AssignNewBirdPerch(b);
+                            continue;
+                        }
+                        b.X = b.PerchedTree.X + b.TreeOffsetX;
+                        b.Y = b.PerchedTree.Y + b.TreeOffsetY;
+                    }
+                    else if (b.SurfaceHwnd != IntPtr.Zero)
+                    {
+                        WindowSurface surf;
+                        if (_surfaces.TryGetValue(b.SurfaceHwnd, out surf) && !surf.IsMaximized)
+                        {
+                            b.Y = surf.Top;
+                            if (b.X < surf.Left + 14f || b.X > surf.Right - 14f)
+                            {
+                                AssignNewBirdPerch(b);
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            AssignNewBirdPerch(b);
+                            continue;
+                        }
+                    }
+
+                    // Ara sıra minik zıplama veya sağa sola bakma
+                    if (_rng.Next(180) == 0) b.Direction = -b.Direction;
+                    if (_rng.Next(220) == 0) b.HopOffset = -5.5f;
+                    b.HopOffset *= 0.78f;
+
+                    // Fare imleci çok yaklaşırsa ürküp kanat çırparak başka yere uçsun!
+                    float dx = cur.X - b.X;
+                    float dy = cur.Y - (b.Y - 8f);
+                    if (dx * dx + dy * dy < 72f * 72f || b.StateTimer <= 0)
+                    {
+                        AssignNewBirdPerch(b);
+                        b.Vy = -2.2f;
+                    }
+                }
+                else
+                {
+                    // Uçuş durumu: hedefe zarif bir yay çizerek uç
+                    b.WingPhase += 0.42f;
+                    if (b.PerchedTree != null && _trees.Contains(b.PerchedTree))
+                    {
+                        b.TargetX = b.PerchedTree.X + b.TreeOffsetX;
+                        b.TargetY = b.PerchedTree.Y + b.TreeOffsetY;
+                    }
+                    else if (b.SurfaceHwnd != IntPtr.Zero)
+                    {
+                        WindowSurface s;
+                        if (_surfaces.TryGetValue(b.SurfaceHwnd, out s) && !s.IsMaximized)
+                            b.TargetY = s.Top;
+                    }
+
+                    float dx = b.TargetX - b.X;
+                    float dy = b.TargetY - b.Y;
+                    float dist = (float)Math.Sqrt(dx * dx + dy * dy);
+                    if (dist < 8f)
+                    {
+                        b.X = b.TargetX;
+                        b.Y = b.TargetY;
+                        b.Vx = 0f;
+                        b.Vy = 0f;
+                        b.State = 0;
+                        b.StateTimer = 240 + _rng.Next(360);
+                    }
+                    else
+                    {
+                        float spd = Math.Min(5.2f, Math.Max(2.4f, dist * 0.045f));
+                        float lift = dist > 90f ? -0.85f : 0f;
+                        b.Vx = b.Vx * 0.86f + (dx / dist) * spd * 0.14f;
+                        b.Vy = b.Vy * 0.86f + ((dy / dist) * spd + lift) * 0.14f;
+                        b.X += b.Vx;
+                        b.Y += b.Vy;
+                        if (Math.Abs(b.Vx) > 0.25f)
+                            b.Direction = (b.Vx >= 0f) ? 1 : -1;
+                    }
+                }
+            }
+        }
+
+        private void UpdateCursorTrailAndMouseShake()
+        {
+            Point raw = Cursor.Position;
+            Point cur = new Point(raw.X - _originX, raw.Y - _originY);
+
+            if (_hasLastTrailCursor)
+            {
+                int dx = cur.X - _lastTrailCursor.X;
+                int dy = cur.Y - _lastTrailCursor.Y;
+                float dist = (float)Math.Sqrt(dx * dx + dy * dy);
+
+                // 1. İmleç Kış Işıltısı (Cursor Magic Trail)
+                if (CursorTrailEnabled && !PerformanceMode && dist > 6f)
+                {
+                    int spawnN = dist > 28f ? 2 : 1;
+                    for (int k = 0; k < spawnN; k++)
+                    {
+                        SpawnMagicSparkle(
+                            cur.X + (float)(_rng.NextDouble() * 10.0 - 5.0),
+                            cur.Y + (float)(_rng.NextDouble() * 10.0 - 5.0),
+                            false);
+                    }
+                }
+
+                // 2. Fareyi Hızla Sağa-Sola Sallayınca Otomatik Kar Küresi Sallama
+                if (_mouseShakeCooldown > 0) _mouseShakeCooldown--;
+                if (_mouseShakeTimer > 0) _mouseShakeTimer--;
+                else _mouseShakeCount = 0;
+
+                if (ShakeEnabled && _mouseShakeCooldown == 0 && Math.Abs(dx) > 42 && Math.Abs(dy) < 60)
+                {
+                    int dir = dx > 0 ? 1 : -1;
+                    if (dir != _mouseShakeDir)
+                    {
+                        _mouseShakeDir = dir;
+                        _mouseShakeCount++;
+                        _mouseShakeTimer = 26;
+                        if (_mouseShakeCount >= 4)
+                        {
+                            _mouseShakeCount = 0;
+                            _mouseShakeCooldown = 140;
+                            TriggerSnowglobeShake();
+                        }
+                    }
+                }
+            }
+
+            _lastTrailCursor = cur;
+            _hasLastTrailCursor = true;
+
+            for (int i = 0; i < _magicSparkles.Length; i++)
+            {
+                if (!_magicSparkles[i].Active) continue;
+                MagicSparkle sp = _magicSparkles[i];
+                if (sp.IsRing)
+                {
+                    sp.Size += 2.3f;
+                }
+                else
+                {
+                    sp.X += sp.Vx;
+                    sp.Y += sp.Vy;
+                    sp.Vy += 0.025f;
+                }
+                sp.Ttl--;
+                if (sp.Ttl <= 0) sp.Active = false;
+                _magicSparkles[i] = sp;
+            }
+        }
+
+        private void UpdateCountdownAndConfetti(float windVx)
+        {
+            if (_celebrationBannerTicks > 0) _celebrationBannerTicks--;
+
+            // Gerçek gece yarısı (1 Ocak 00:00:00) yakalandığında otomatik kutlama başlat!
+            if (CountdownEnabled && (_frameCount % 30 == 0))
+            {
+                DateTime now = DateTime.Now;
+                if (now.Month == 1 && now.Day == 1 && now.Hour == 0 && now.Minute == 0 && _lastCelebratedYear != now.Year)
+                {
+                    _lastCelebratedYear = now.Year;
+                    TriggerMidnightCelebration();
+                }
+            }
+
+            for (int i = 0; i < _confetti.Length; i++)
+            {
+                if (!_confetti[i].Active) continue;
+                ConfettiParticle c = _confetti[i];
+                c.Vx = c.Vx * 0.97f + windVx * 0.025f;
+                c.Vy = Math.Min(4.2f, c.Vy + 0.09f);
+                c.X += c.Vx + (float)Math.Sin(_time * 4.5f + i) * 0.55f;
+                c.Y += c.Vy;
+                c.Angle += c.Spin;
+                c.Ttl--;
+                if (c.Ttl <= 0 || c.Y > _screenH + 20f)
+                    c.Active = false;
+                _confetti[i] = c;
             }
         }
 
@@ -6443,9 +7926,21 @@ namespace SnowyWindows
             for (int i = 0; i < _campfires.Count; i++)
                 DrawCampfire(g, _campfires[i]);
 
+            // 2c-0. Gökyüzüne Süzülen Sıcak Dilek Fenerleri (🏮)
+            if (LanternsEnabled)
+                DrawWishLanterns(g);
+
             // 2c. Noel Baba'nın Bıraktığı Sürpriz Paraşütlü Hediyeler (🎁)
             for (int i = 0; i < _gifts.Count; i++)
                 DrawGiftBox(g, _gifts[i]);
+
+            // 2c-1. Özelleştirilebilir Yılbaşı Ağaçları (🎄)
+            ChristmasTreeEntity activeTreeTarget = (_treeDecoratorForm != null && !_treeDecoratorForm.IsDisposed) ? _treeDecoratorForm.TargetTree : null;
+            for (int i = 0; i < _trees.Count; i++)
+            {
+                ChristmasTreeEntity tr = _trees[i];
+                TreeRenderer.DrawTree(g, tr, tr.X, tr.Y, 1.0f, _time, _audioLevelSmooth, _audioBeat, tr == activeTreeTarget);
+            }
 
             // 2d. Kutup Ekspresi Görev Çubuğu Treni (🚂)
             if (TrainEnabled && _trainVisible)
@@ -6454,6 +7949,10 @@ namespace SnowyWindows
             // 2e. Paytak Masaüstü Penguenleri (🐧)
             for (int i = 0; i < _penguins.Count; i++)
                 DrawPenguin(g, _penguins[i]);
+
+            // 2f. Pencere & Ağaç Kış Kuşları (🐦 Kızılgerdan & Kar Baykuşu)
+            for (int i = 0; i < _birds.Count; i++)
+                DrawWinterBird(g, _birds[i]);
 
             // 3. 3 Kartopuyla Oluşturulmuş / Giydirilmiş Kardan Adamlar (⛄)
             Point rawCur = Cursor.Position;
@@ -6529,8 +8028,12 @@ namespace SnowyWindows
                 g.FillEllipse(_alphaWhiteBrushes[a], f.X - r, f.Y - r, f.Size, f.Size);
             }
 
-            // 6a. Sürpriz Havai Fişekler (🎆)
+            // 6a. Sürpriz Havai Fişekler & Kutlama Konfetileri (🎆)
             DrawFireworks(g);
+            DrawConfetti(g);
+
+            // 6a-2. Fare İmleci Kış Işıltısı (✨)
+            DrawMagicSparkles(g);
 
             // 6b. Vuruş & Sürpriz Efekt Yazıları (🎯 HEADSHOT!, 🎅 HO HO HO!)
             for (int i = 0; i < _popups.Length; i++)
@@ -6547,8 +8050,317 @@ namespace SnowyWindows
             if (!PerformanceMode)
                 DrawCornerFrost(g);
 
+            // 6e. Yılbaşı Geri Sayım Widget'ı, Gece Yarısı Kutlama Pankartı & Bildirim Toast'u
+            if (CountdownEnabled)
+                DrawCountdownWidget(g);
+            if (_celebrationBannerTicks > 0)
+                DrawCelebrationBanner(g);
+            if (_toastTicks > 0 && !string.IsNullOrEmpty(_toastText))
+                DrawToastNotification(g);
+
             // 7. UpdateLayeredWindow ile ekrana bas
             PresentFrame();
+        }
+
+        private void DrawWishLanterns(Graphics g)
+        {
+            for (int i = 0; i < _lanterns.Length; i++)
+            {
+                if (!_lanterns[i].Active) continue;
+                WishLantern l = _lanterns[i];
+                float sc = l.Scale;
+                float flicker = 0.86f + 0.14f * (float)Math.Sin(l.FlickerPhase);
+
+                Color topCol = l.WarmHue == 0
+                    ? Color.FromArgb(225, 234, 88, 12)
+                    : (l.WarmHue == 1 ? Color.FromArgb(225, 245, 158, 11) : Color.FromArgb(225, 244, 63, 94));
+                Color botCol = Color.FromArgb(245, 254, 240, 138);
+
+                GraphicsState st = g.Save();
+                g.TranslateTransform(l.X, l.Y);
+                g.RotateTransform((float)Math.Sin(l.SwayPhase) * 6.5f);
+                g.ScaleTransform(sc, sc);
+
+                // Yumuşak sıcak dış ışık halesi
+                float hr = 24f * flicker;
+                using (GraphicsPath hp = new GraphicsPath())
+                {
+                    hp.AddEllipse(-hr, -hr, hr * 2f, hr * 2f);
+                    using (PathGradientBrush halo = new PathGradientBrush(hp))
+                    {
+                        halo.CenterColor = Color.FromArgb((int)(88 * flicker), 251, 191, 36);
+                        halo.SurroundColors = new Color[] { Color.FromArgb(0, 245, 158, 11) };
+                        g.FillPath(halo, hp);
+                    }
+                }
+
+                // Fener kağıt gövdesi
+                RectangleF body = new RectangleF(-9f, -14f, 18f, 24f);
+                using (GraphicsPath bp = GraphicsExt.CreateRoundedRect(body, 6f))
+                using (LinearGradientBrush grad = new LinearGradientBrush(body, topCol, botCol, LinearGradientMode.Vertical))
+                using (Pen rim = new Pen(Color.FromArgb(165, 180, 83, 9), 1.0f))
+                {
+                    g.FillPath(grad, bp);
+                    g.DrawPath(rim, bp);
+                }
+
+                // İç alev çekirdeği & alt çerçeve
+                using (SolidBrush flame = new SolidBrush(Color.FromArgb(235, 255, 255, 224)))
+                using (Pen baseRim = new Pen(Color.FromArgb(210, 120, 53, 15), 1.8f))
+                {
+                    g.FillEllipse(flame, -3.2f, 2f, 6.4f, 6.4f);
+                    g.DrawLine(baseRim, -6.5f, 10.5f, 6.5f, 10.5f);
+                }
+
+                g.Restore(st);
+            }
+        }
+
+        private void DrawWinterBird(Graphics g, WinterBirdEntity b)
+        {
+            GraphicsState st = g.Save();
+            g.TranslateTransform(b.X, b.Y + b.HopOffset);
+            g.ScaleTransform(b.Direction, 1f);
+
+            float wingY = (b.State == 1) ? ((float)Math.Sin(b.WingPhase) * 8.5f) : 0f;
+
+            if (b.Species == 0)
+            {
+                // Kızılgerdan (Winter Robin)
+                using (SolidBrush back = new SolidBrush(Color.FromArgb(252, 120, 74, 48)))
+                using (SolidBrush breast = new SolidBrush(Color.FromArgb(252, 239, 68, 68)))
+                using (SolidBrush eye = new SolidBrush(Color.FromArgb(252, 15, 23, 42)))
+                using (SolidBrush beak = new SolidBrush(Color.FromArgb(252, 245, 158, 11)))
+                using (Pen legPen = new Pen(Color.FromArgb(230, 82, 54, 38), 1.3f))
+                {
+                    if (b.State == 0)
+                    {
+                        g.DrawLine(legPen, -2f, -3f, -2f, 0.5f);
+                        g.DrawLine(legPen, 2f, -3f, 2f, 0.5f);
+                    }
+                    // Kuyruk
+                    g.FillPolygon(back, new PointF[] { new PointF(-7f, -7f), new PointF(-15f, -10f), new PointF(-13f, -5f) });
+                    // Gövde & Kırmızı göğüs
+                    g.FillEllipse(back, -8.5f, -14f, 16f, 11.5f);
+                    g.FillEllipse(breast, -1.5f, -11.8f, 9.2f, 8.2f);
+                    // Kafa, göz & gaga
+                    g.FillEllipse(back, 1.5f, -19f, 9.5f, 9.2f);
+                    g.FillEllipse(eye, 6.2f, -16.5f, 2.5f, 2.5f);
+                    g.FillPolygon(beak, new PointF[] { new PointF(10.5f, -15.6f), new PointF(15.2f, -14.2f), new PointF(10.5f, -13.0f) });
+                    // Kanat
+                    if (b.State == 1)
+                    {
+                        g.FillPolygon(back, new PointF[]
+                        {
+                            new PointF(-3f, -10f),
+                            new PointF(3f, -10f),
+                            new PointF(-4f, -14f - wingY)
+                        });
+                    }
+                    else
+                    {
+                        g.FillEllipse(back, -6.5f, -12.5f, 9.5f, 5.2f);
+                    }
+                }
+            }
+            else
+            {
+                // Kar Baykuşu (Snowy Owl)
+                using (SolidBrush white = new SolidBrush(Color.FromArgb(252, 248, 250, 252)))
+                using (SolidBrush speck = new SolidBrush(Color.FromArgb(165, 148, 163, 184)))
+                using (SolidBrush goldEye = new SolidBrush(Color.FromArgb(252, 250, 204, 21)))
+                using (SolidBrush pupil = new SolidBrush(Color.FromArgb(252, 15, 23, 42)))
+                using (SolidBrush beak = new SolidBrush(Color.FromArgb(252, 71, 85, 105)))
+                using (Pen outline = new Pen(Color.FromArgb(185, 148, 163, 184), 1.0f))
+                {
+                    // Gövde
+                    g.FillEllipse(white, -8f, -17f, 16f, 16f);
+                    g.DrawEllipse(outline, -8f, -17f, 16f, 16f);
+                    g.FillEllipse(speck, -5f, -11f, 3.2f, 2.0f);
+                    g.FillEllipse(speck, 0f, -8f, 3.2f, 2.0f);
+                    g.FillEllipse(speck, -3f, -6f, 3.0f, 1.8f);
+                    // Kafa & minik tüy kulaklar
+                    g.FillEllipse(white, -6.5f, -25.5f, 13.5f, 11.5f);
+                    g.DrawEllipse(outline, -6.5f, -25.5f, 13.5f, 11.5f);
+                    // Büyük altın baykuş gözleri
+                    g.FillEllipse(goldEye, -3.5f, -22.5f, 4.0f, 4.0f);
+                    g.FillEllipse(goldEye, 1.8f, -22.5f, 4.0f, 4.0f);
+                    g.FillEllipse(pupil, -2.3f, -21.3f, 1.8f, 1.8f);
+                    g.FillEllipse(pupil, 3.0f, -21.3f, 1.8f, 1.8f);
+                    // Gaga
+                    g.FillPolygon(beak, new PointF[] { new PointF(0.2f, -19.2f), new PointF(2.2f, -19.2f), new PointF(1.2f, -16.8f) });
+                    // Kanatlar (uçarken genişçe açılır)
+                    if (b.State == 1)
+                    {
+                        g.FillPolygon(white, new PointF[]
+                        {
+                            new PointF(-6f, -12f),
+                            new PointF(6f, -12f),
+                            new PointF(-12f, -16f - wingY)
+                        });
+                        g.FillPolygon(white, new PointF[]
+                        {
+                            new PointF(-4f, -12f),
+                            new PointF(6f, -12f),
+                            new PointF(13f, -16f - wingY)
+                        });
+                    }
+                }
+            }
+
+            g.Restore(st);
+        }
+
+        private void DrawConfetti(Graphics g)
+        {
+            for (int i = 0; i < _confetti.Length; i++)
+            {
+                if (!_confetti[i].Active) continue;
+                ConfettiParticle c = _confetti[i];
+                int a = Math.Max(20, Math.Min(250, (c.Ttl * 250) / Math.Max(1, c.MaxTtl)));
+                GraphicsState st = g.Save();
+                g.TranslateTransform(c.X, c.Y);
+                g.RotateTransform(c.Angle);
+                using (SolidBrush cb = new SolidBrush(Color.FromArgb(a, c.Color.R, c.Color.G, c.Color.B)))
+                    g.FillRectangle(cb, -c.Size * 0.5f, -c.Size * 0.28f, c.Size, c.Size * 0.56f);
+                g.Restore(st);
+            }
+        }
+
+        private void DrawMagicSparkles(Graphics g)
+        {
+            for (int i = 0; i < _magicSparkles.Length; i++)
+            {
+                if (!_magicSparkles[i].Active) continue;
+                MagicSparkle sp = _magicSparkles[i];
+                int a = Math.Max(15, Math.Min(235, (sp.Ttl * 235) / Math.Max(1, sp.MaxTtl)));
+                if (sp.IsRing)
+                {
+                    using (Pen rp = new Pen(Color.FromArgb(a, 125, 211, 252), 1.6f))
+                        g.DrawEllipse(rp, sp.X - sp.Size, sp.Y - sp.Size, sp.Size * 2f, sp.Size * 2f);
+                }
+                else
+                {
+                    float s = sp.Size;
+                    using (Pen p = new Pen(Color.FromArgb(a, sp.Color.R, sp.Color.G, sp.Color.B), 1.3f))
+                    {
+                        g.DrawLine(p, sp.X - s, sp.Y, sp.X + s, sp.Y);
+                        g.DrawLine(p, sp.X, sp.Y - s, sp.X, sp.Y + s);
+                    }
+                }
+            }
+        }
+
+        private void DrawCountdownWidget(Graphics g)
+        {
+            EnsureCountdownPos();
+            float x = _countdownX;
+            float y = _countdownY;
+            const float w = 216f;
+            const float h = 66f;
+
+            DateTime now = DateTime.Now;
+            DateTime target = new DateTime(now.Year + 1, 1, 1, 0, 0, 0);
+            TimeSpan rem = target - now;
+            if (rem.TotalSeconds < 0) rem = TimeSpan.Zero;
+
+            string title = IsEnglish
+                ? ("⏳ NEW YEAR " + target.Year)
+                : ("⏳ YENİ YILA KALAN (" + target.Year + ")");
+            string timeText = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "{0:D2}{1}  {2:D2}:{3:D2}:{4:D2}",
+                (int)rem.TotalDays,
+                IsEnglish ? "d" : "g",
+                rem.Hours, rem.Minutes, rem.Seconds);
+
+            RectangleF card = new RectangleF(x, y, w, h);
+            using (GraphicsPath cp = GraphicsExt.CreateRoundedRect(card, 12f))
+            using (SolidBrush bg = new SolidBrush(Color.FromArgb(196, 11, 17, 30)))
+            using (Pen border = new Pen(Color.FromArgb(165, 56, 189, 248), 1.25f))
+            {
+                g.FillPath(bg, cp);
+                g.DrawPath(border, cp);
+            }
+
+            // Üst ince Aurora vurgu çizgisi
+            using (LinearGradientBrush accent = new LinearGradientBrush(
+                new RectangleF(x + 12f, y + 1f, w - 24f, 3f),
+                Color.FromArgb(220, 56, 189, 248),
+                Color.FromArgb(220, 250, 204, 21),
+                LinearGradientMode.Horizontal))
+            {
+                g.FillRectangle(accent, x + 14f, y + 1f, w - 28f, 2.5f);
+            }
+
+            using (Font fTitle = new Font("Segoe UI Semibold", 8.0f, FontStyle.Bold))
+            using (Font fTime = new Font("Consolas", 14.2f, FontStyle.Bold))
+            using (SolidBrush bTitle = new SolidBrush(Color.FromArgb(225, 148, 163, 184)))
+            using (SolidBrush bTime = new SolidBrush(Color.FromArgb(252, 254, 240, 138)))
+            using (StringFormat sf = new StringFormat { Alignment = StringAlignment.Center })
+            {
+                g.DrawString(title, fTitle, bTitle, new RectangleF(x, y + 10f, w, 18f), sf);
+                g.DrawString(timeText, fTime, bTime, new RectangleF(x, y + 30f, w, 28f), sf);
+            }
+        }
+
+        private void DrawCelebrationBanner(Graphics g)
+        {
+            float alphaFrac = Math.Min(1f, Math.Min(_celebrationBannerTicks / 50f, (420 - _celebrationBannerTicks) / 25f));
+            int a = Math.Max(0, Math.Min(245, (int)(245f * alphaFrac)));
+            if (a <= 5) return;
+
+            string text = IsEnglish
+                ? ("✨ HAPPY NEW YEAR " + _celebrationYear + "! ✨")
+                : ("✨ MUTLU YILLAR " + _celebrationYear + "! ✨");
+
+            using (Font f = new Font("Segoe UI", 26f, FontStyle.Bold))
+            {
+                SizeF sz = g.MeasureString(text, f);
+                float pw = sz.Width + 48f;
+                float ph = sz.Height + 24f;
+                float px = (_screenW - pw) * 0.5f;
+                float py = Math.Max(92f, _screenH * 0.16f) + (float)Math.Sin(_time * 4.0f) * 6f;
+
+                RectangleF rect = new RectangleF(px, py, pw, ph);
+                using (GraphicsPath gp = GraphicsExt.CreateRoundedRect(rect, 18f))
+                using (SolidBrush bg = new SolidBrush(Color.FromArgb((int)(a * 0.78f), 15, 23, 42)))
+                using (Pen rim = new Pen(Color.FromArgb(a, 250, 204, 21), 2.5f))
+                using (SolidBrush glow = new SolidBrush(Color.FromArgb((int)(a * 0.35f), 253, 224, 71)))
+                using (SolidBrush txt = new SolidBrush(Color.FromArgb(a, 254, 240, 138)))
+                {
+                    g.FillPath(bg, gp);
+                    g.DrawPath(rim, gp);
+                    g.DrawString(text, f, glow, px + 26f, py + 14f);
+                    g.DrawString(text, f, txt, px + 24f, py + 12f);
+                }
+            }
+        }
+
+        private void DrawToastNotification(Graphics g)
+        {
+            float alphaFrac = Math.Min(1f, Math.Min(_toastTicks / 28f, (175 - _toastTicks) / 14f));
+            int a = Math.Max(0, Math.Min(240, (int)(240f * alphaFrac)));
+            if (a <= 5) return;
+
+            using (Font f = new Font("Segoe UI Semibold", 9.8f, FontStyle.Bold))
+            {
+                SizeF sz = g.MeasureString(_toastText, f);
+                float pw = sz.Width + 28f;
+                float ph = sz.Height + 14f;
+                float px = (_screenW - pw) * 0.5f;
+                float py = _screenH - ph - 66f;
+                RectangleF rect = new RectangleF(px, py, pw, ph);
+                using (GraphicsPath gp = GraphicsExt.CreateRoundedRect(rect, 11f))
+                using (SolidBrush bg = new SolidBrush(Color.FromArgb((int)(a * 0.88f), 15, 23, 42)))
+                using (Pen rim = new Pen(Color.FromArgb(a, 56, 189, 248), 1.4f))
+                using (SolidBrush txt = new SolidBrush(Color.FromArgb(a, 224, 242, 254)))
+                {
+                    g.FillPath(bg, gp);
+                    g.DrawPath(rim, gp);
+                    g.DrawString(_toastText, f, txt, px + 14f, py + 7f);
+                }
+            }
         }
 
         private void DrawCornerFrost(Graphics g)
@@ -9427,6 +11239,602 @@ namespace SnowyWindows
         }
     }
 
+    internal sealed class TreePreviewCanvas : Control
+    {
+        public ChristmasTreeEntity Target;
+        private float _animTime;
+        private readonly PointF[] _snowPts = new PointF[22];
+
+        public TreePreviewCanvas()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer, true);
+            DoubleBuffered = true;
+            Random r = new Random(99);
+            for (int i = 0; i < _snowPts.Length; i++)
+                _snowPts[i] = new PointF((float)(r.NextDouble() * 190.0), (float)(r.NextDouble() * 230.0));
+        }
+
+        public void StepAnimation()
+        {
+            _animTime += 0.035f;
+            for (int i = 0; i < _snowPts.Length; i++)
+            {
+                _snowPts[i].Y += 0.55f + (i % 3) * 0.25f;
+                _snowPts[i].X += (float)Math.Sin(_animTime + i) * 0.22f;
+                if (_snowPts[i].Y > Height) { _snowPts[i].Y = -4f; _snowPts[i].X = (i * 31) % Math.Max(20, Width); }
+            }
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            RectangleF rect = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+            using (GraphicsPath clipPath = GraphicsExt.CreateRoundedRect(rect, 12f))
+            {
+                GraphicsState st = g.Save();
+                g.SetClip(clipPath);
+
+                using (LinearGradientBrush sky = new LinearGradientBrush(
+                    rect,
+                    Color.FromArgb(14, 24, 44),
+                    Color.FromArgb(24, 42, 70),
+                    LinearGradientMode.Vertical))
+                {
+                    g.FillRectangle(sky, rect);
+                }
+
+                // Karlı zemin tepesi
+                using (LinearGradientBrush hill = new LinearGradientBrush(
+                    new RectangleF(0f, Height - 44f, Width, 48f),
+                    Color.FromArgb(235, 224, 242, 254),
+                    Color.FromArgb(245, 148, 197, 253),
+                    LinearGradientMode.Vertical))
+                {
+                    g.FillEllipse(hill, -30f, Height - 36f, Width + 60f, 64f);
+                }
+
+                if (Target != null)
+                {
+                    // Önizleme içine sığacak şekilde zarifçe ölçekle (boyut değişimini de hissettirerek!)
+                    float previewMult = Math.Max(0.85f, Math.Min(1.55f, 1.38f / Math.Max(0.85f, Target.Scale * 0.85f)));
+                    float savedWob = Target.WobbleAngle;
+                    Target.WobbleAngle = (float)Math.Sin(_animTime * 1.4f) * 1.4f;
+                    TreeRenderer.DrawTree(g, Target, Width * 0.5f, Height - 20f, previewMult, _animTime, 0.65f, 0.25f, false);
+                    Target.WobbleAngle = savedWob;
+                }
+
+                using (SolidBrush flakeBrush = new SolidBrush(Color.FromArgb(170, 255, 255, 255)))
+                {
+                    for (int i = 0; i < _snowPts.Length; i++)
+                    {
+                        float sz = (i % 3 == 0) ? 3.0f : 2.0f;
+                        g.FillEllipse(flakeBrush, _snowPts[i].X, _snowPts[i].Y, sz, sz);
+                    }
+                }
+
+                g.Restore(st);
+                using (Pen border = new Pen(Color.FromArgb(56, 82, 118), 1.2f))
+                    g.DrawPath(border, clipPath);
+            }
+        }
+    }
+
+    internal sealed class TreeDecoratorForm : Form
+    {
+        private readonly SnowOverlayForm _overlay;
+        public ChristmasTreeEntity TargetTree { get; private set; }
+
+        private readonly TreePreviewCanvas _preview;
+        private readonly Timer _animTimer;
+        private double _fadeTarget = 0.97;
+
+        private readonly Label _titleLbl;
+        private readonly Label _liveBadge;
+        private readonly ModernButton _randomBtn;
+        private readonly ModernButton _deleteBtn;
+        private readonly ModernButton[] _presetBtns = new ModernButton[4];
+
+        private readonly SegmentedTabBar _tabs;
+        private readonly Panel[] _tabPanels = new Panel[4];
+
+        // Tab 0: Ağaç & Tepe
+        private readonly Label _treeStyleLbl;
+        private readonly OptionChipSelector _treeStyleChips;
+        private readonly Label _topperLbl;
+        private readonly OptionChipSelector _topperChips;
+
+        // Tab 1: Işıklar
+        private readonly Label _lightStyleLbl;
+        private readonly OptionChipSelector _lightStyleChips;
+        private readonly Label _lightAnimLbl;
+        private readonly OptionChipSelector _lightAnimChips;
+
+        // Tab 2: Süsler & Kurdele
+        private readonly Label _ornStyleLbl;
+        private readonly OptionChipSelector _ornStyleChips;
+        private readonly Label _ornColorLbl;
+        private readonly ColorSwatchBar _ornColors;
+        private readonly Label _garlandLbl;
+        private readonly OptionChipSelector _garlandChips;
+
+        // Tab 3: Altlık & Hediyeler
+        private readonly ModernToggle _giftsToggle;
+        private readonly Label _baseTipLbl;
+
+        // Alt Boyut Kaydırıcısı (%60 - %160)
+        private readonly Label _sizeLbl;
+        private readonly Label _sizeValLbl;
+        private readonly ModernSlider _sizeSlider;
+
+        public TreeDecoratorForm(SnowOverlayForm overlay, ChristmasTreeEntity target)
+        {
+            _overlay = overlay;
+            TargetTree = target;
+
+            SuspendLayout();
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.Manual;
+            ClientSize = new Size(548, 444);
+            BackColor = Color.FromArgb(11, 17, 30);
+            ForeColor = Color.White;
+            TopMost = true;
+            ShowInTaskbar = false;
+            KeyPreview = true;
+            DoubleBuffered = true;
+            Opacity = 0.0;
+
+            Panel headerBar = new Panel
+            {
+                Location = new Point(0, 3),
+                Size = new Size(548, 42),
+                BackColor = Color.FromArgb(15, 24, 42)
+            };
+            MouseEventHandler dragForm = (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    NativeMethods.ReleaseCapture();
+                    NativeMethods.SendMessage(Handle, NativeMethods.WM_NCLBUTTONDOWN, NativeMethods.HT_CAPTION, 0);
+                }
+            };
+            headerBar.MouseDown += dragForm;
+            Controls.Add(headerBar);
+
+            _titleLbl = new Label
+            {
+                Location = new Point(16, 11),
+                AutoSize = true,
+                Font = new Font("Segoe UI Semibold", 10.2f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(248, 250, 252),
+                BackColor = Color.Transparent
+            };
+            _titleLbl.MouseDown += dragForm;
+            headerBar.Controls.Add(_titleLbl);
+
+            _liveBadge = new Label
+            {
+                Location = new Point(236, 12),
+                Size = new Size(56, 18),
+                Font = new Font("Segoe UI", 7.3f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(52, 211, 153),
+                BackColor = Color.FromArgb(16, 46, 42),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            headerBar.Controls.Add(_liveBadge);
+
+            ModernButton closeBtn = new ModernButton
+            {
+                Text = "✕",
+                Location = new Point(512, 8),
+                Size = new Size(26, 26),
+                CornerRadius = 7,
+                FillColor = Color.FromArgb(58, 24, 34),
+                BorderColor = Color.FromArgb(105, 42, 54),
+                ForeColor = Color.FromArgb(252, 165, 165),
+                Font = new Font("Segoe UI", 8.2f, FontStyle.Bold)
+            };
+            closeBtn.Click += (s, e) => Close();
+            headerBar.Controls.Add(closeBtn);
+
+            // ---- Sol Önizleme Sütunu ----
+            _preview = new TreePreviewCanvas
+            {
+                Location = new Point(16, 56),
+                Size = new Size(176, 232),
+                Target = target
+            };
+            Controls.Add(_preview);
+
+            for (int i = 0; i < 4; i++)
+            {
+                int idx = i;
+                _presetBtns[i] = new ModernButton
+                {
+                    Location = new Point(16 + (i % 2) * 90, 298 + (i / 2) * 32),
+                    Size = new Size(86, 27),
+                    CornerRadius = 7,
+                    FillColor = Color.FromArgb(22, 34, 54),
+                    BorderColor = Color.FromArgb(46, 66, 98),
+                    Font = new Font("Segoe UI Semibold", 7.8f, FontStyle.Bold)
+                };
+                _presetBtns[i].Click += (s, e) =>
+                {
+                    if (TargetTree != null)
+                    {
+                        TargetTree.ApplyPreset(idx);
+                        SyncControlsFromTree();
+                    }
+                };
+                Controls.Add(_presetBtns[i]);
+            }
+
+            _randomBtn = new ModernButton
+            {
+                Location = new Point(16, 366),
+                Size = new Size(176, 28),
+                CornerRadius = 8,
+                FillColor = Color.FromArgb(20, 83, 45),
+                BorderColor = Color.FromArgb(52, 211, 153),
+                ForeColor = Color.FromArgb(209, 250, 229),
+                Font = new Font("Segoe UI Semibold", 8.2f, FontStyle.Bold)
+            };
+            _randomBtn.Click += (s, e) =>
+            {
+                if (TargetTree != null)
+                {
+                    TargetTree.Randomize(new Random(Environment.TickCount));
+                    SyncControlsFromTree();
+                }
+            };
+            Controls.Add(_randomBtn);
+
+            _deleteBtn = new ModernButton
+            {
+                Location = new Point(16, 400),
+                Size = new Size(176, 28),
+                CornerRadius = 8,
+                FillColor = Color.FromArgb(58, 22, 34),
+                BorderColor = Color.FromArgb(127, 29, 29),
+                ForeColor = Color.FromArgb(252, 165, 165),
+                Font = new Font("Segoe UI Semibold", 8.1f, FontStyle.Bold)
+            };
+            _deleteBtn.Click += (s, e) =>
+            {
+                if (TargetTree != null)
+                    _overlay.DeleteChristmasTree(TargetTree);
+                Close();
+            };
+            Controls.Add(_deleteBtn);
+
+            // ---- Sağ Süsleme Sekmeleri ----
+            int rx = 208;
+            int rw = 324;
+
+            _tabs = new SegmentedTabBar
+            {
+                Location = new Point(rx, 56),
+                Size = new Size(rw, 34)
+            };
+            _tabs.SelectedIndexChanged += ShowTab;
+            Controls.Add(_tabs);
+
+            for (int i = 0; i < 4; i++)
+            {
+                _tabPanels[i] = new Panel
+                {
+                    Location = new Point(rx, 100),
+                    Size = new Size(rw, 260),
+                    BackColor = Color.FromArgb(11, 17, 30),
+                    Visible = (i == 0)
+                };
+                Controls.Add(_tabPanels[i]);
+            }
+
+            // Tab 0: Ağaç & Tepe Süsü
+            _treeStyleLbl = CreateSectionLabel(0, 0);
+            _tabPanels[0].Controls.Add(_treeStyleLbl);
+            _treeStyleChips = new OptionChipSelector { Location = new Point(0, 22), Size = new Size(rw, 76) };
+            _treeStyleChips.SelectedIndexChanged += idx => { if (TargetTree != null) TargetTree.TreeStyle = idx; };
+            _tabPanels[0].Controls.Add(_treeStyleChips);
+
+            _topperLbl = CreateSectionLabel(0, 114);
+            _tabPanels[0].Controls.Add(_topperLbl);
+            _topperChips = new OptionChipSelector { Location = new Point(0, 136), Size = new Size(rw, 76) };
+            _topperChips.SelectedIndexChanged += idx => { if (TargetTree != null) TargetTree.TopperStyle = idx; };
+            _tabPanels[0].Controls.Add(_topperChips);
+
+            // Tab 1: Işıklar
+            _lightStyleLbl = CreateSectionLabel(0, 0);
+            _tabPanels[1].Controls.Add(_lightStyleLbl);
+            _lightStyleChips = new OptionChipSelector { Location = new Point(0, 22), Size = new Size(rw, 76) };
+            _lightStyleChips.SelectedIndexChanged += idx => { if (TargetTree != null) TargetTree.LightStyle = idx; };
+            _tabPanels[1].Controls.Add(_lightStyleChips);
+
+            _lightAnimLbl = CreateSectionLabel(0, 114);
+            _tabPanels[1].Controls.Add(_lightAnimLbl);
+            _lightAnimChips = new OptionChipSelector { Location = new Point(0, 136), Size = new Size(rw, 76) };
+            _lightAnimChips.SelectedIndexChanged += idx => { if (TargetTree != null) TargetTree.LightAnim = idx; };
+            _tabPanels[1].Controls.Add(_lightAnimChips);
+
+            // Tab 2: Süsler & Kurdele
+            _ornStyleLbl = CreateSectionLabel(0, 0);
+            _tabPanels[2].Controls.Add(_ornStyleLbl);
+            _ornStyleChips = new OptionChipSelector { Location = new Point(0, 20), Size = new Size(rw, 38) };
+            _ornStyleChips.SelectedIndexChanged += idx => { if (TargetTree != null) TargetTree.OrnamentStyle = idx; };
+            _tabPanels[2].Controls.Add(_ornStyleChips);
+
+            _ornColorLbl = CreateSectionLabel(0, 70);
+            _tabPanels[2].Controls.Add(_ornColorLbl);
+            _ornColors = new ColorSwatchBar { Location = new Point(0, 92), Size = new Size(rw, 34) };
+            _ornColors.SetPalette(ChristmasTreeEntity.OrnamentPalette);
+            _ornColors.ColorSelected += c => { if (TargetTree != null) TargetTree.OrnamentColor = c; };
+            _tabPanels[2].Controls.Add(_ornColors);
+
+            _garlandLbl = CreateSectionLabel(0, 140);
+            _tabPanels[2].Controls.Add(_garlandLbl);
+            _garlandChips = new OptionChipSelector { Location = new Point(0, 162), Size = new Size(rw, 76) };
+            _garlandChips.SelectedIndexChanged += idx => { if (TargetTree != null) TargetTree.GarlandStyle = idx; };
+            _tabPanels[2].Controls.Add(_garlandChips);
+
+            // Tab 3: Altlık & Hediyeler
+            ModernCard baseCard = new ModernCard
+            {
+                Location = new Point(0, 4),
+                Size = new Size(rw, 132),
+                CornerRadius = 10,
+                FillColor = Color.FromArgb(18, 28, 46),
+                BorderColor = Color.FromArgb(44, 62, 92)
+            };
+            _tabPanels[3].Controls.Add(baseCard);
+
+            _giftsToggle = new ModernToggle
+            {
+                Location = new Point(14, 16),
+                Size = new Size(rw - 28, 26),
+                Checked = target.HasGifts
+            };
+            _giftsToggle.CheckedChanged += (s, e) => { if (TargetTree != null) TargetTree.HasGifts = _giftsToggle.Checked; };
+            baseCard.Controls.Add(_giftsToggle);
+
+            _baseTipLbl = new Label
+            {
+                Location = new Point(14, 54),
+                Size = new Size(rw - 28, 66),
+                Font = new Font("Segoe UI", 8.1f),
+                ForeColor = Color.FromArgb(148, 163, 184),
+                BackColor = Color.FromArgb(18, 28, 46)
+            };
+            baseCard.Controls.Add(_baseTipLbl);
+
+            // ---- Alt Kalıcı Boyut Kaydırıcısı (%60 - %160) ----
+            ModernCard sizeCard = new ModernCard
+            {
+                Location = new Point(rx, 372),
+                Size = new Size(rw, 52),
+                CornerRadius = 10,
+                FillColor = Color.FromArgb(18, 28, 46),
+                BorderColor = Color.FromArgb(38, 52, 74)
+            };
+            Controls.Add(sizeCard);
+
+            _sizeLbl = new Label
+            {
+                Font = new Font("Segoe UI Semibold", 8.2f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(203, 213, 225),
+                BackColor = Color.FromArgb(18, 28, 46),
+                Location = new Point(12, 7),
+                AutoSize = true
+            };
+            sizeCard.Controls.Add(_sizeLbl);
+
+            _sizeValLbl = new Label
+            {
+                Font = new Font("Consolas", 8.5f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(52, 211, 153),
+                BackColor = Color.FromArgb(18, 28, 46),
+                Location = new Point(rw - 72, 7),
+                Size = new Size(60, 16),
+                TextAlign = ContentAlignment.MiddleRight
+            };
+            sizeCard.Controls.Add(_sizeValLbl);
+
+            _sizeSlider = new ModernSlider
+            {
+                Location = new Point(8, 26),
+                Size = new Size(rw - 16, 20),
+                Minimum = 60,
+                Maximum = 160,
+                Value = 100
+            };
+            _sizeSlider.Scroll += (s, e) =>
+            {
+                if (TargetTree != null)
+                {
+                    TargetTree.ApplyScale(_sizeSlider.Value / 100f);
+                    _sizeValLbl.Text = "%" + _sizeSlider.Value;
+                }
+            };
+            sizeCard.Controls.Add(_sizeSlider);
+
+            _animTimer = new Timer { Interval = 30 };
+            _animTimer.Tick += (s, e) =>
+            {
+                if (Opacity < _fadeTarget)
+                    Opacity = Math.Min(_fadeTarget, Opacity + 0.14);
+                _preview.StepAnimation();
+            };
+            _animTimer.Start();
+
+            KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) Close(); };
+            FormClosed += (s, e) => { _animTimer.Stop(); _animTimer.Dispose(); };
+
+            ApplyLanguage();
+            SyncControlsFromTree();
+            ResumeLayout(true);
+        }
+
+        private static Label CreateSectionLabel(int x, int y)
+        {
+            return new Label
+            {
+                Location = new Point(x, y),
+                AutoSize = true,
+                Font = new Font("Segoe UI Semibold", 8.3f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(148, 163, 184),
+                BackColor = Color.Transparent
+            };
+        }
+
+        private string Tr(string tr, string en) { return _overlay.IsEnglish ? en : tr; }
+
+        public void SetTargetTree(ChristmasTreeEntity tree)
+        {
+            TargetTree = tree;
+            _preview.Target = tree;
+            SyncControlsFromTree();
+        }
+
+        public void ApplyLanguage()
+        {
+            _titleLbl.Text = Tr("🎄 Yılbaşı Ağacı Süsleme", "🎄 Christmas Tree Studio");
+            _liveBadge.Text = Tr("CANLI", "LIVE");
+            _randomBtn.Text = Tr("🎲 Rastgele Süsle", "🎲 Randomize");
+            _deleteBtn.Text = Tr("🗑 Ağacı Sil", "🗑 Delete Tree");
+
+            _presetBtns[0].Text = Tr("🎄 Klasik", "🎄 Classic");
+            _presetBtns[1].Text = Tr("❄️ Buzul", "❄️ Frost");
+            _presetBtns[2].Text = Tr("🌟 Altın", "🌟 Gold");
+            _presetBtns[3].Text = Tr("🍬 Şeker", "🍬 Candy");
+
+            _tabs.SetTabs(new string[] {
+                Tr("Ağaç", "Tree"),
+                Tr("Işıklar", "Lights"),
+                Tr("Süsler", "Decor"),
+                Tr("Altlık", "Base")
+            });
+
+            _treeStyleLbl.Text = Tr("Ağaç Türü & Rengi", "Tree Style & Color");
+            _treeStyleChips.SetItems(new string[] {
+                Tr("🌲 Klasik Çam", "🌲 Pine"),
+                Tr("❄️ Karlı Çam", "❄️ Snowy"),
+                Tr("🧊 Buz Beyazı", "🧊 Ice White"),
+                Tr("🌸 Pembe Kış", "🌸 Rose Gold")
+            }, 2);
+
+            _topperLbl.Text = Tr("Tepe Süsü (Topper)", "Tree Topper");
+            _topperChips.SetItems(new string[] {
+                Tr("Yok", "None"),
+                Tr("⭐ Altın Yıldız", "⭐ Gold Star"),
+                Tr("❄️ Kar Tanesi", "❄️ Snowflake"),
+                Tr("🎀 Kırmızı Fiyonk", "🎀 Red Bow")
+            }, 2);
+
+            _lightStyleLbl.Text = Tr("Işık Rengi", "Light Color");
+            _lightStyleChips.SetItems(new string[] {
+                Tr("Kapalı", "Off"),
+                Tr("✨ Sıcak Altın", "✨ Warm Gold"),
+                Tr("🌈 Çok Renkli", "🌈 Multicolor"),
+                Tr("💎 Buz Mavisi", "💎 Ice Blue")
+            }, 2);
+
+            _lightAnimLbl.Text = Tr("Işık Animasyonu", "Light Animation");
+            _lightAnimChips.SetItems(new string[] {
+                Tr("Sabit", "Steady"),
+                Tr("✨ Parılda", "✨ Twinkle"),
+                Tr("🌊 Dalga", "🌊 Wave"),
+                Tr("🎵 Müzik (WASAPI)", "🎵 Music Sync")
+            }, 2);
+
+            _ornStyleLbl.Text = Tr("Süs Çeşidi", "Ornament Style");
+            _ornStyleChips.SetItems(new string[] {
+                Tr("Yok", "None"),
+                Tr("🔴 Toplar", "🔴 Baubles"),
+                Tr("🍬 Şeker", "🍬 Canes"),
+                Tr("⭐ Yıldız", "⭐ Stars")
+            }, 4);
+
+            _ornColorLbl.Text = Tr("Süs Ana Rengi", "Ornament Accent Color");
+            _garlandLbl.Text = Tr("Sarmal Kurdele (Garland)", "Tinsel / Garland");
+            _garlandChips.SetItems(new string[] {
+                Tr("Yok", "None"),
+                Tr("✨ Altın Sarmal", "✨ Gold Tinsel"),
+                Tr("🎀 Kırmızı Kurdele", "🎀 Red Ribbon"),
+                Tr("⚪ Gümüş İnci", "⚪ Silver Pearls")
+            }, 2);
+
+            _giftsToggle.Text = Tr("🎁 Ağaç Altı Hediye Paketleri", "🎁 Mini Gift Boxes Under Tree");
+            _baseTipLbl.Text = Tr(
+                "İpucu: Alttaki kaydırıcı ile ağacı %60–%160 arasında boyutlandırabilir, F8 etkileşim modunda tutup dilediğiniz pencereye taşıyabilirsiniz. Kış kuşları da dallarına konar!",
+                "Tip: Resize the tree from 60%–160% below, drag it onto any window in F8 Interactive Mode, and watch winter birds perch right on its branches!");
+
+            _sizeLbl.Text = Tr("Yılbaşı Ağacı Boyutu", "Christmas Tree Size");
+        }
+
+        private void SyncControlsFromTree()
+        {
+            if (TargetTree == null) return;
+            _treeStyleChips.SelectedIndex = TargetTree.TreeStyle;
+            _topperChips.SelectedIndex = TargetTree.TopperStyle;
+            _lightStyleChips.SelectedIndex = TargetTree.LightStyle;
+            _lightAnimChips.SelectedIndex = TargetTree.LightAnim;
+            _ornStyleChips.SelectedIndex = TargetTree.OrnamentStyle;
+            _ornColors.SelectClosestColor(TargetTree.OrnamentColor);
+            _garlandChips.SelectedIndex = TargetTree.GarlandStyle;
+            _giftsToggle.Checked = TargetTree.HasGifts;
+
+            int pct = (int)Math.Round(TargetTree.Scale * 100f);
+            _sizeSlider.Value = Math.Max(60, Math.Min(160, pct));
+            _sizeValLbl.Text = "%" + _sizeSlider.Value;
+        }
+
+        private void ShowTab(int index)
+        {
+            for (int i = 0; i < _tabPanels.Length; i++)
+                _tabPanels[i].Visible = (i == index);
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ClassStyle |= 0x00020000;
+                return cp;
+            }
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            try
+            {
+                int dark = 1;
+                NativeMethods.DwmSetWindowAttribute(Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+                int corner = NativeMethods.DWMWCP_ROUND;
+                NativeMethods.DwmSetWindowAttribute(Handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
+            }
+            catch { }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            using (LinearGradientBrush accent = new LinearGradientBrush(
+                new Rectangle(0, 0, Width, 3),
+                Color.FromArgb(52, 211, 153),
+                Color.FromArgb(250, 204, 21),
+                LinearGradientMode.Horizontal))
+            {
+                e.Graphics.FillRectangle(accent, 0, 0, Width, 3);
+            }
+            using (Pen borderPen = new Pen(Color.FromArgb(56, 82, 118), 1f))
+                e.Graphics.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
+        }
+    }
+
     internal sealed class AudioLevelBar : Control
     {
         private float _level;
@@ -9517,17 +11925,23 @@ namespace SnowyWindows
         private readonly ModernButton _interactBtn;
         private readonly ModernButton _pauseBtn;
         private readonly ModernButton _clearBtn;
+        private readonly ModernButton _shakeQuickBtn;
+        private readonly ModernButton _postcardQuickBtn;
 
-        // Sağ Sütun Sekmeler (Oyuncaklar / Atmosfer / Sistem)
+        // Sağ Sütun 4 Sekme (Oyuncak / Sahne / Kutlama / Sistem)
         private readonly SegmentedTabBar _rightTabs;
-        private readonly Panel[] _tabPanels = new Panel[3];
+        private readonly Panel[] _tabPanels = new Panel[4];
 
-        // Tab 0: Oyuncaklar
+        // Tab 0: Oyuncaklar (Kardan Adam, Yılbaşı Ağacı, Penguen, Kürek/Ateş)
         private readonly Label _snowmenCardHdr;
         private readonly ModernButton _snowmanBtn;
         private readonly ModernButton _ballBtn;
         private readonly ModernToggle _fightToggle;
         private readonly Label _snowmanTipLbl;
+        private readonly Label _treeCardHdr;
+        private readonly ModernButton _treeBtn;
+        private readonly ModernButton _removeTreeBtn;
+        private readonly Label _treeTipLbl;
         private readonly Label _penguinCardHdr;
         private readonly ModernButton _penguinBtn;
         private readonly ModernButton _removePenguinBtn;
@@ -9536,24 +11950,38 @@ namespace SnowyWindows
         private readonly ModernButton _removePlowBtn;
         private readonly ModernButton _fireBtn;
         private readonly ModernButton _removeFireBtn;
-        private readonly Label _toysHintLbl;
 
-        // Tab 1: Atmosfer & Ses
+        // Tab 1: Sahne & Doğa
         private readonly Label _atmoCardHdr;
         private readonly ModernToggle _lightsToggle;
         private readonly ModernToggle _iciclesToggle;
         private readonly ModernToggle _frostToggle;
         private readonly ModernToggle _auroraToggle;
         private readonly ModernToggle _santaToggle;
+        private readonly ModernToggle _lanternsToggle;
+        private readonly Label _lifeCardHdr;
         private readonly ModernToggle _cableCarToggle;
         private readonly ModernToggle _trainToggle;
+        private readonly ModernToggle _birdsToggle;
+        private readonly ModernToggle _cursorTrailToggle;
+        private readonly Label _toysHintLbl;
+
+        // Tab 2: Kutlama, Ses & Kartpostal
+        private readonly Label _celebCardHdr;
+        private readonly ModernToggle _countdownToggle;
+        private readonly ModernToggle _shakeToggle;
+        private readonly ModernButton _testCelebBtn;
+        private readonly ModernButton _shakeCardBtn;
         private readonly Label _audioCardHdr;
         private readonly ModernToggle _soundToggle;
         private readonly ModernToggle _audioReactiveToggle;
         private readonly Label _audioMeterLbl;
         private readonly Label _audioHintLbl;
+        private readonly Label _postcardCardHdr;
+        private readonly ModernButton _postcardBtn;
+        private readonly Label _postcardHintLbl;
 
-        // Tab 2: Sistem & Kayıt
+        // Tab 3: Sistem & Kayıt
         private readonly Label _sysDisplayHdr;
         private readonly ModernButton _multiMonBtn;
         private readonly ModernToggle _perfToggle;
@@ -9570,6 +11998,8 @@ namespace SnowyWindows
         private readonly MenuItem _trayShowItem;
         private readonly MenuItem _trayInteractItem;
         private readonly MenuItem _traySurpriseItem;
+        private readonly MenuItem _trayShakeItem;
+        private readonly MenuItem _trayPostcardItem;
         private readonly MenuItem _trayPauseItem;
         private readonly MenuItem _trayClearItem;
         private readonly MenuItem _trayExitItem;
@@ -9585,10 +12015,10 @@ namespace SnowyWindows
             AutoScaleMode = AutoScaleMode.Dpi;
 
             Text = "Snowy for Windows";
-            ClientSize = new Size(632, 574);
+            ClientSize = new Size(668, 610);
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.Manual;
-            Location = new Point(36, 48);
+            Location = new Point(36, 42);
             BackColor = Color.FromArgb(11, 17, 30);
             ForeColor = Color.FromArgb(248, 250, 252);
             TopMost = true;
@@ -9599,7 +12029,7 @@ namespace SnowyWindows
             Panel headerBar = new Panel
             {
                 Location = new Point(0, 3),
-                Size = new Size(632, 44),
+                Size = new Size(668, 44),
                 BackColor = Color.FromArgb(15, 24, 42)
             };
             MouseEventHandler dragForm = (s, e) =>
@@ -9627,10 +12057,10 @@ namespace SnowyWindows
 
             Label verBadge = new Label
             {
-                Text = "v1.3",
+                Text = "v1.4",
                 Font = new Font("Consolas", 7.6f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(148, 163, 184),
-                BackColor = Color.FromArgb(24, 36, 58),
+                ForeColor = Color.FromArgb(52, 211, 153),
+                BackColor = Color.FromArgb(18, 42, 46),
                 Location = new Point(108, 13),
                 Size = new Size(38, 18),
                 TextAlign = ContentAlignment.MiddleCenter
@@ -9650,7 +12080,7 @@ namespace SnowyWindows
 
             _surpriseBtn = new ModernButton
             {
-                Location = new Point(352, 9),
+                Location = new Point(388, 9),
                 Size = new Size(134, 26),
                 CornerRadius = 8,
                 FillColor = Color.FromArgb(76, 29, 149),
@@ -9663,7 +12093,7 @@ namespace SnowyWindows
 
             _langBtn = new ModernButton
             {
-                Location = new Point(494, 9),
+                Location = new Point(530, 9),
                 Size = new Size(58, 26),
                 CornerRadius = 8,
                 FillColor = Color.FromArgb(26, 40, 62),
@@ -9682,7 +12112,7 @@ namespace SnowyWindows
             ModernButton minBtn = new ModernButton
             {
                 Text = "—",
-                Location = new Point(560, 9),
+                Location = new Point(596, 9),
                 Size = new Size(28, 26),
                 CornerRadius = 7,
                 FillColor = Color.FromArgb(24, 35, 54),
@@ -9695,7 +12125,7 @@ namespace SnowyWindows
             ModernButton closeBtn = new ModernButton
             {
                 Text = "✕",
-                Location = new Point(594, 9),
+                Location = new Point(630, 9),
                 Size = new Size(28, 26),
                 CornerRadius = 7,
                 FillColor = Color.FromArgb(58, 24, 34),
@@ -9707,12 +12137,11 @@ namespace SnowyWindows
             headerBar.Controls.Add(closeBtn);
 
             // ================================================================
-            // SOL SÜTUN: HAVA DURUMU, FİZİK KAYDIRICILARI & ANA KONTROLLER
+            // SOL SÜTUN: HAVA DURUMU, FİZİK KAYDIRICILARI & HIZLI AKSİYONLAR
             // ================================================================
             const int LX = 18;
-            const int LW = 286;
+            const int LW = 294;
 
-            // ---- Kart 1: Rüzgar Radarı & Hazır Hava Durumu ----
             ModernCard windCard = new ModernCard
             {
                 Location = new Point(LX, 58),
@@ -9776,22 +12205,22 @@ namespace SnowyWindows
             };
             windCard.Controls.Add(_windHint);
 
-            _lightBtn = CreateModernButton(new Point(12, 178), new Size(84, 28), Color.FromArgb(26, 39, 62));
+            _lightBtn = CreateModernButton(new Point(12, 178), new Size(86, 28), Color.FromArgb(26, 39, 62));
             _lightBtn.Click += (s, e) => ApplyPreset(220, -0.12f, 0.05f, 0.12f, false);
             windCard.Controls.Add(_lightBtn);
 
-            _normalBtn = CreateModernButton(new Point(101, 178), new Size(84, 28), Color.FromArgb(26, 39, 62));
+            _normalBtn = CreateModernButton(new Point(104, 178), new Size(86, 28), Color.FromArgb(26, 39, 62));
             _normalBtn.Click += (s, e) => ApplyPreset(420, -0.22f, 0.08f, 0.22f, false);
             windCard.Controls.Add(_normalBtn);
 
-            _blizzardBtn = CreateModernButton(new Point(190, 178), new Size(84, 28), Color.FromArgb(26, 39, 62));
+            _blizzardBtn = CreateModernButton(new Point(196, 178), new Size(86, 28), Color.FromArgb(26, 39, 62));
             _blizzardBtn.Click += (s, e) => ApplyPreset(1150, -0.82f, 0.52f, 0.65f, true);
             windCard.Controls.Add(_blizzardBtn);
 
             // ---- Kart 2: Kar Fizik Kaydırıcıları ----
             ModernCard sliderCard = new ModernCard
             {
-                Location = new Point(LX, 288),
+                Location = new Point(LX, 286),
                 Size = new Size(LW, 184)
             };
             Controls.Add(sliderCard);
@@ -9827,27 +12256,39 @@ namespace SnowyWindows
                 SyncMeltLabel();
             };
 
-            // ---- Alt Ana Aksiyonlar (F8 / F7 / F9) ----
-            _interactBtn = CreateModernButton(new Point(LX, 484), new Size(LW, 34), Color.FromArgb(2, 132, 199));
+            // ---- Alt Ana Aksiyonlar (F8 / F7 / F9 / Salla / F10 Kartpostal) ----
+            _interactBtn = CreateModernButton(new Point(LX, 482), new Size(LW, 34), Color.FromArgb(2, 132, 199));
             _interactBtn.BorderColor = Color.FromArgb(56, 189, 248);
             _interactBtn.Click += (s, e) => _overlay.ToggleInteractiveMode();
             Controls.Add(_interactBtn);
 
-            _pauseBtn = CreateModernButton(new Point(LX, 526), new Size(139, 32), Color.FromArgb(24, 35, 54));
+            _pauseBtn = CreateModernButton(new Point(LX, 524), new Size(143, 32), Color.FromArgb(24, 35, 54));
             _pauseBtn.Click += (s, e) => _overlay.TogglePause();
             Controls.Add(_pauseBtn);
 
-            _clearBtn = CreateModernButton(new Point(LX + 147, 526), new Size(139, 32), Color.FromArgb(44, 24, 34));
+            _clearBtn = CreateModernButton(new Point(LX + 151, 524), new Size(143, 32), Color.FromArgb(44, 24, 34));
             _clearBtn.BorderColor = Color.FromArgb(95, 42, 56);
             _clearBtn.ForeColor = Color.FromArgb(252, 165, 165);
             _clearBtn.Click += (s, e) => _overlay.ClearAllSnow();
             Controls.Add(_clearBtn);
 
+            _shakeQuickBtn = CreateModernButton(new Point(LX, 564), new Size(143, 32), Color.FromArgb(30, 41, 82));
+            _shakeQuickBtn.BorderColor = Color.FromArgb(129, 140, 248);
+            _shakeQuickBtn.ForeColor = Color.FromArgb(224, 231, 255);
+            _shakeQuickBtn.Click += (s, e) => _overlay.TriggerSnowglobeShake();
+            Controls.Add(_shakeQuickBtn);
+
+            _postcardQuickBtn = CreateModernButton(new Point(LX + 151, 564), new Size(143, 32), Color.FromArgb(17, 64, 72));
+            _postcardQuickBtn.BorderColor = Color.FromArgb(45, 212, 191);
+            _postcardQuickBtn.ForeColor = Color.FromArgb(204, 251, 241);
+            _postcardQuickBtn.Click += (s, e) => _overlay.CaptureWinterPostcard();
+            Controls.Add(_postcardQuickBtn);
+
             // ================================================================
-            // SAĞ SÜTUN: FERAH 3 SEKMELİ STÜDYO (OYUNCAKLAR / ATMOSFER / SİSTEM)
+            // SAĞ SÜTUN: FERAH 4 SEKMELİ STÜDYO (OYUNCAK / SAHNE / KUTLAMA / SİSTEM)
             // ================================================================
-            const int RX = 320;
-            const int RW = 294;
+            const int RX = 326;
+            const int RW = 324;
 
             _rightTabs = new SegmentedTabBar
             {
@@ -9857,12 +12298,12 @@ namespace SnowyWindows
             _rightTabs.SelectedIndexChanged += ShowRightTab;
             Controls.Add(_rightTabs);
 
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < 4; i++)
             {
                 _tabPanels[i] = new Panel
                 {
                     Location = new Point(RX, 104),
-                    Size = new Size(RW, 456),
+                    Size = new Size(RW, 492),
                     BackColor = Color.FromArgb(11, 17, 30),
                     Visible = (i == 0)
                 };
@@ -9870,105 +12311,115 @@ namespace SnowyWindows
             }
 
             // ---- TAB 0: OYUNCAKLAR ----
-            ModernCard snowmanCard = new ModernCard { Location = new Point(0, 0), Size = new Size(RW, 146) };
+            ModernCard snowmanCard = new ModernCard { Location = new Point(0, 0), Size = new Size(RW, 128) };
             _tabPanels[0].Controls.Add(snowmanCard);
 
-            _snowmenCardHdr = CreateCardHeader(14, 10);
+            _snowmenCardHdr = CreateCardHeader(14, 9);
             snowmanCard.Controls.Add(_snowmenCardHdr);
 
-            _snowmanBtn = CreateModernButton(new Point(12, 36), new Size(132, 32), Color.FromArgb(20, 56, 88));
+            _snowmanBtn = CreateModernButton(new Point(12, 34), new Size(146, 30), Color.FromArgb(20, 56, 88));
             _snowmanBtn.BorderColor = Color.FromArgb(56, 189, 248);
             _snowmanBtn.ForeColor = Color.FromArgb(224, 242, 254);
             _snowmanBtn.Click += (s, e) => _overlay.SpawnDressedSnowmanOnActiveWindow(false);
             snowmanCard.Controls.Add(_snowmanBtn);
 
-            _ballBtn = CreateModernButton(new Point(150, 36), new Size(132, 32), Color.FromArgb(28, 42, 66));
+            _ballBtn = CreateModernButton(new Point(166, 34), new Size(146, 30), Color.FromArgb(28, 42, 66));
             _ballBtn.Click += (s, e) => _overlay.SpawnSingleSnowballOnActiveWindow();
             snowmanCard.Controls.Add(_ballBtn);
 
-            _fightToggle = new ModernToggle
-            {
-                Location = new Point(14, 78),
-                Size = new Size(RW - 28, 24),
-                Checked = _overlay.SnowmanFightEnabled
-            };
+            _fightToggle = CreateCardToggle(snowmanCard, 72, RW, _overlay.SnowmanFightEnabled);
             _fightToggle.CheckedChanged += (s, e) => { _overlay.SnowmanFightEnabled = _fightToggle.Checked; };
-            snowmanCard.Controls.Add(_fightToggle);
 
             _snowmanTipLbl = new Label
             {
-                Location = new Point(14, 108),
-                Size = new Size(RW - 28, 30),
-                Font = new Font("Segoe UI", 7.4f),
+                Location = new Point(14, 100),
+                Size = new Size(RW - 28, 22),
+                Font = new Font("Segoe UI", 7.3f),
                 ForeColor = Color.FromArgb(125, 211, 252),
                 BackColor = Color.FromArgb(20, 30, 48)
             };
             snowmanCard.Controls.Add(_snowmanTipLbl);
 
+            // Yılbaşı Ağacı Kartı (YENİ!)
+            ModernCard treeCard = new ModernCard { Location = new Point(0, 138), Size = new Size(RW, 102) };
+            _tabPanels[0].Controls.Add(treeCard);
+
+            _treeCardHdr = CreateCardHeader(14, 9);
+            treeCard.Controls.Add(_treeCardHdr);
+
+            _treeBtn = CreateModernButton(new Point(12, 34), new Size(146, 30), Color.FromArgb(18, 72, 48));
+            _treeBtn.BorderColor = Color.FromArgb(52, 211, 153);
+            _treeBtn.ForeColor = Color.FromArgb(209, 250, 229);
+            _treeBtn.Click += (s, e) => _overlay.SpawnChristmasTree(false);
+            treeCard.Controls.Add(_treeBtn);
+
+            _removeTreeBtn = CreateModernButton(new Point(166, 34), new Size(146, 30), Color.FromArgb(46, 26, 34));
+            _removeTreeBtn.BorderColor = Color.FromArgb(110, 48, 62);
+            _removeTreeBtn.ForeColor = Color.FromArgb(254, 205, 211);
+            _removeTreeBtn.Click += (s, e) => _overlay.RemoveLastChristmasTree();
+            treeCard.Controls.Add(_removeTreeBtn);
+
+            _treeTipLbl = new Label
+            {
+                Location = new Point(14, 70),
+                Size = new Size(RW - 28, 24),
+                Font = new Font("Segoe UI", 7.3f),
+                ForeColor = Color.FromArgb(110, 231, 183),
+                BackColor = Color.FromArgb(20, 30, 48)
+            };
+            treeCard.Controls.Add(_treeTipLbl);
+
             // Penguen Kartı
-            ModernCard penguinCard = new ModernCard { Location = new Point(0, 158), Size = new Size(RW, 84) };
+            ModernCard penguinCard = new ModernCard { Location = new Point(0, 250), Size = new Size(RW, 80) };
             _tabPanels[0].Controls.Add(penguinCard);
 
-            _penguinCardHdr = CreateCardHeader(14, 10);
+            _penguinCardHdr = CreateCardHeader(14, 9);
             penguinCard.Controls.Add(_penguinCardHdr);
 
-            _penguinBtn = CreateModernButton(new Point(12, 38), new Size(132, 32), Color.FromArgb(24, 52, 74));
+            _penguinBtn = CreateModernButton(new Point(12, 36), new Size(146, 30), Color.FromArgb(24, 52, 74));
             _penguinBtn.BorderColor = Color.FromArgb(56, 189, 248);
             _penguinBtn.ForeColor = Color.FromArgb(224, 242, 254);
             _penguinBtn.Click += (s, e) => _overlay.SpawnPenguin(false);
             penguinCard.Controls.Add(_penguinBtn);
 
-            _removePenguinBtn = CreateModernButton(new Point(150, 38), new Size(132, 32), Color.FromArgb(44, 28, 38));
+            _removePenguinBtn = CreateModernButton(new Point(166, 36), new Size(146, 30), Color.FromArgb(44, 28, 38));
             _removePenguinBtn.BorderColor = Color.FromArgb(95, 50, 72);
             _removePenguinBtn.ForeColor = Color.FromArgb(251, 207, 232);
             _removePenguinBtn.Click += (s, e) => _overlay.RemoveLastPenguin();
             penguinCard.Controls.Add(_removePenguinBtn);
 
             // Kürek & Kamp Ateşi Kartı
-            ModernCard toolsCard = new ModernCard { Location = new Point(0, 254), Size = new Size(RW, 130) };
+            ModernCard toolsCard = new ModernCard { Location = new Point(0, 340), Size = new Size(RW, 124) };
             _tabPanels[0].Controls.Add(toolsCard);
 
-            _toolsCardHdr = CreateCardHeader(14, 10);
+            _toolsCardHdr = CreateCardHeader(14, 9);
             toolsCard.Controls.Add(_toolsCardHdr);
 
-            _plowBtn = CreateModernButton(new Point(12, 38), new Size(132, 32), Color.FromArgb(145, 86, 10));
+            _plowBtn = CreateModernButton(new Point(12, 36), new Size(146, 30), Color.FromArgb(145, 86, 10));
             _plowBtn.BorderColor = Color.FromArgb(234, 179, 8);
             _plowBtn.Click += (s, e) => _overlay.SpawnSnowPlow();
             toolsCard.Controls.Add(_plowBtn);
 
-            _removePlowBtn = CreateModernButton(new Point(150, 38), new Size(132, 32), Color.FromArgb(52, 34, 24));
+            _removePlowBtn = CreateModernButton(new Point(166, 36), new Size(146, 30), Color.FromArgb(52, 34, 24));
             _removePlowBtn.BorderColor = Color.FromArgb(161, 98, 7);
             _removePlowBtn.ForeColor = Color.FromArgb(254, 240, 138);
             _removePlowBtn.Click += (s, e) => _overlay.RemoveLastSnowPlow();
             toolsCard.Controls.Add(_removePlowBtn);
 
-            _fireBtn = CreateModernButton(new Point(12, 82), new Size(132, 32), Color.FromArgb(124, 45, 18));
+            _fireBtn = CreateModernButton(new Point(12, 76), new Size(146, 30), Color.FromArgb(124, 45, 18));
             _fireBtn.BorderColor = Color.FromArgb(234, 88, 12);
             _fireBtn.ForeColor = Color.FromArgb(254, 215, 170);
             _fireBtn.Click += (s, e) => _overlay.SpawnCampfire();
             toolsCard.Controls.Add(_fireBtn);
 
-            _removeFireBtn = CreateModernButton(new Point(150, 82), new Size(132, 32), Color.FromArgb(55, 24, 30));
+            _removeFireBtn = CreateModernButton(new Point(166, 76), new Size(146, 30), Color.FromArgb(55, 24, 30));
             _removeFireBtn.BorderColor = Color.FromArgb(154, 52, 18);
             _removeFireBtn.ForeColor = Color.FromArgb(253, 186, 116);
             _removeFireBtn.Click += (s, e) => _overlay.RemoveLastCampfire();
             toolsCard.Controls.Add(_removeFireBtn);
 
-            ModernCard tipCard = new ModernCard { Location = new Point(0, 396), Size = new Size(RW, 58) };
-            _tabPanels[0].Controls.Add(tipCard);
-
-            _toysHintLbl = new Label
-            {
-                Location = new Point(12, 10),
-                Size = new Size(RW - 24, 38),
-                Font = new Font("Segoe UI", 7.6f),
-                ForeColor = Color.FromArgb(148, 163, 184),
-                BackColor = Color.FromArgb(20, 30, 48)
-            };
-            tipCard.Controls.Add(_toysHintLbl);
-
-            // ---- TAB 1: ATMOSFER & SES ----
-            ModernCard atmoCard = new ModernCard { Location = new Point(0, 0), Size = new Size(RW, 266) };
+            // ---- TAB 1: SAHNE & DOĞA ----
+            ModernCard atmoCard = new ModernCard { Location = new Point(0, 0), Size = new Size(RW, 224) };
             _tabPanels[1].Controls.Add(atmoCard);
 
             _atmoCardHdr = CreateCardHeader(14, 10);
@@ -9977,31 +12428,87 @@ namespace SnowyWindows
             _lightsToggle = CreateCardToggle(atmoCard, 38, RW, _overlay.FairyLightsEnabled);
             _lightsToggle.CheckedChanged += (s, e) => { _overlay.FairyLightsEnabled = _lightsToggle.Checked; };
 
-            _iciclesToggle = CreateCardToggle(atmoCard, 70, RW, _overlay.IciclesEnabled);
+            _iciclesToggle = CreateCardToggle(atmoCard, 68, RW, _overlay.IciclesEnabled);
             _iciclesToggle.CheckedChanged += (s, e) => { _overlay.IciclesEnabled = _iciclesToggle.Checked; };
 
-            _frostToggle = CreateCardToggle(atmoCard, 102, RW, _overlay.FrostEnabled);
+            _frostToggle = CreateCardToggle(atmoCard, 98, RW, _overlay.FrostEnabled);
             _frostToggle.CheckedChanged += (s, e) => { _overlay.FrostEnabled = _frostToggle.Checked; };
 
-            _auroraToggle = CreateCardToggle(atmoCard, 134, RW, _overlay.AuroraEnabled);
+            _auroraToggle = CreateCardToggle(atmoCard, 128, RW, _overlay.AuroraEnabled);
             _auroraToggle.CheckedChanged += (s, e) => { _overlay.AuroraEnabled = _auroraToggle.Checked; };
 
-            _santaToggle = CreateCardToggle(atmoCard, 166, RW, _overlay.SantaEnabled);
+            _santaToggle = CreateCardToggle(atmoCard, 158, RW, _overlay.SantaEnabled);
             _santaToggle.CheckedChanged += (s, e) =>
             {
                 _overlay.SantaEnabled = _santaToggle.Checked;
                 if (_overlay.SantaEnabled) _overlay.SummonSantaSoon();
             };
 
-            _cableCarToggle = CreateCardToggle(atmoCard, 198, RW, _overlay.CableCarEnabled);
+            _lanternsToggle = CreateCardToggle(atmoCard, 188, RW, _overlay.LanternsEnabled);
+            _lanternsToggle.CheckedChanged += (s, e) => { _overlay.LanternsEnabled = _lanternsToggle.Checked; };
+
+            ModernCard lifeCard = new ModernCard { Location = new Point(0, 236), Size = new Size(RW, 162) };
+            _tabPanels[1].Controls.Add(lifeCard);
+
+            _lifeCardHdr = CreateCardHeader(14, 10);
+            lifeCard.Controls.Add(_lifeCardHdr);
+
+            _cableCarToggle = CreateCardToggle(lifeCard, 38, RW, _overlay.CableCarEnabled);
             _cableCarToggle.CheckedChanged += (s, e) => { _overlay.CableCarEnabled = _cableCarToggle.Checked; };
 
-            _trainToggle = CreateCardToggle(atmoCard, 230, RW, _overlay.TrainEnabled);
+            _trainToggle = CreateCardToggle(lifeCard, 68, RW, _overlay.TrainEnabled);
             _trainToggle.CheckedChanged += (s, e) => { _overlay.TrainEnabled = _trainToggle.Checked; };
 
-            // Ses & Müzik Kartı
-            ModernCard audioCard = new ModernCard { Location = new Point(0, 278), Size = new Size(RW, 176) };
-            _tabPanels[1].Controls.Add(audioCard);
+            _birdsToggle = CreateCardToggle(lifeCard, 98, RW, _overlay.BirdsEnabled);
+            _birdsToggle.CheckedChanged += (s, e) =>
+            {
+                _overlay.BirdsEnabled = _birdsToggle.Checked;
+                _overlay.EnsureWinterBirdsCount();
+            };
+
+            _cursorTrailToggle = CreateCardToggle(lifeCard, 128, RW, _overlay.CursorTrailEnabled);
+            _cursorTrailToggle.CheckedChanged += (s, e) => { _overlay.CursorTrailEnabled = _cursorTrailToggle.Checked; };
+
+            ModernCard tipCard = new ModernCard { Location = new Point(0, 410), Size = new Size(RW, 72) };
+            _tabPanels[1].Controls.Add(tipCard);
+
+            _toysHintLbl = new Label
+            {
+                Location = new Point(12, 10),
+                Size = new Size(RW - 24, 52),
+                Font = new Font("Segoe UI", 7.6f),
+                ForeColor = Color.FromArgb(148, 163, 184),
+                BackColor = Color.FromArgb(20, 30, 48)
+            };
+            tipCard.Controls.Add(_toysHintLbl);
+
+            // ---- TAB 2: KUTLAMA, SES & KARTPOSTAL ----
+            ModernCard celebCard = new ModernCard { Location = new Point(0, 0), Size = new Size(RW, 154) };
+            _tabPanels[2].Controls.Add(celebCard);
+
+            _celebCardHdr = CreateCardHeader(14, 10);
+            celebCard.Controls.Add(_celebCardHdr);
+
+            _countdownToggle = CreateCardToggle(celebCard, 38, RW, _overlay.CountdownEnabled);
+            _countdownToggle.CheckedChanged += (s, e) => { _overlay.CountdownEnabled = _countdownToggle.Checked; };
+
+            _shakeToggle = CreateCardToggle(celebCard, 70, RW, _overlay.ShakeEnabled);
+            _shakeToggle.CheckedChanged += (s, e) => { _overlay.ShakeEnabled = _shakeToggle.Checked; };
+
+            _testCelebBtn = CreateModernButton(new Point(12, 106), new Size(146, 32), Color.FromArgb(113, 63, 18));
+            _testCelebBtn.BorderColor = Color.FromArgb(250, 204, 21);
+            _testCelebBtn.ForeColor = Color.FromArgb(254, 240, 138);
+            _testCelebBtn.Click += (s, e) => _overlay.TriggerMidnightCelebration();
+            celebCard.Controls.Add(_testCelebBtn);
+
+            _shakeCardBtn = CreateModernButton(new Point(166, 106), new Size(146, 32), Color.FromArgb(30, 41, 82));
+            _shakeCardBtn.BorderColor = Color.FromArgb(129, 140, 248);
+            _shakeCardBtn.ForeColor = Color.FromArgb(224, 231, 255);
+            _shakeCardBtn.Click += (s, e) => _overlay.TriggerSnowglobeShake();
+            celebCard.Controls.Add(_shakeCardBtn);
+
+            ModernCard audioCard = new ModernCard { Location = new Point(0, 166), Size = new Size(RW, 180) };
+            _tabPanels[2].Controls.Add(audioCard);
 
             _audioCardHdr = CreateCardHeader(14, 10);
             audioCard.Controls.Add(_audioCardHdr);
@@ -10032,16 +12539,38 @@ namespace SnowyWindows
             _audioHintLbl = new Label
             {
                 Location = new Point(14, 142),
-                Size = new Size(RW - 28, 26),
+                Size = new Size(RW - 28, 28),
                 Font = new Font("Segoe UI", 7.2f),
                 ForeColor = Color.FromArgb(125, 211, 252),
                 BackColor = Color.FromArgb(20, 30, 48)
             };
             audioCard.Controls.Add(_audioHintLbl);
 
-            // ---- TAB 2: SİSTEM & KAYIT ----
+            ModernCard postcardCard = new ModernCard { Location = new Point(0, 358), Size = new Size(RW, 124) };
+            _tabPanels[2].Controls.Add(postcardCard);
+
+            _postcardCardHdr = CreateCardHeader(14, 10);
+            postcardCard.Controls.Add(_postcardCardHdr);
+
+            _postcardBtn = CreateModernButton(new Point(12, 38), new Size(RW - 24, 34), Color.FromArgb(17, 64, 72));
+            _postcardBtn.BorderColor = Color.FromArgb(45, 212, 191);
+            _postcardBtn.ForeColor = Color.FromArgb(204, 251, 241);
+            _postcardBtn.Click += (s, e) => _overlay.CaptureWinterPostcard();
+            postcardCard.Controls.Add(_postcardBtn);
+
+            _postcardHintLbl = new Label
+            {
+                Location = new Point(14, 78),
+                Size = new Size(RW - 28, 34),
+                Font = new Font("Segoe UI", 7.4f),
+                ForeColor = Color.FromArgb(148, 163, 184),
+                BackColor = Color.FromArgb(20, 30, 48)
+            };
+            postcardCard.Controls.Add(_postcardHintLbl);
+
+            // ---- TAB 3: SİSTEM & KAYIT ----
             ModernCard displayCard = new ModernCard { Location = new Point(0, 0), Size = new Size(RW, 148) };
-            _tabPanels[2].Controls.Add(displayCard);
+            _tabPanels[3].Controls.Add(displayCard);
 
             _sysDisplayHdr = CreateCardHeader(14, 10);
             displayCard.Controls.Add(_sysDisplayHdr);
@@ -10060,9 +12589,8 @@ namespace SnowyWindows
             _autoPauseToggle = CreateCardToggle(displayCard, 110, RW, _overlay.AutoPauseOnFullscreen);
             _autoPauseToggle.CheckedChanged += (s, e) => { _overlay.AutoPauseOnFullscreen = _autoPauseToggle.Checked; };
 
-            // Windows Başlangıç & Kardan Adam Kayıt Kartı
             ModernCard saveCard = new ModernCard { Location = new Point(0, 160), Size = new Size(RW, 148) };
-            _tabPanels[2].Controls.Add(saveCard);
+            _tabPanels[3].Controls.Add(saveCard);
 
             _sysSaveHdr = CreateCardHeader(14, 10);
             saveCard.Controls.Add(_sysSaveHdr);
@@ -10080,13 +12608,12 @@ namespace SnowyWindows
             {
                 SettingsStore.Save(_overlay);
                 _overlay.SaveSnowmenNow();
-                _saveNowBtn.Text = Tr("✓ Ayarlar & Kardan Adamlar Kaydedildi!", "✓ Settings & Snowmen Saved!");
+                _saveNowBtn.Text = Tr("✓ Ayarlar & Sahne Kaydedildi!", "✓ Settings & Scene Saved!");
             };
             saveCard.Controls.Add(_saveNowBtn);
 
-            // Kısayollar Kartı
-            ModernCard shortcutCard = new ModernCard { Location = new Point(0, 320), Size = new Size(RW, 134) };
-            _tabPanels[2].Controls.Add(shortcutCard);
+            ModernCard shortcutCard = new ModernCard { Location = new Point(0, 320), Size = new Size(RW, 162) };
+            _tabPanels[3].Controls.Add(shortcutCard);
 
             _shortcutsHdr = CreateCardHeader(14, 10);
             shortcutCard.Controls.Add(_shortcutsHdr);
@@ -10094,7 +12621,7 @@ namespace SnowyWindows
             _shortcutsBody = new Label
             {
                 Location = new Point(14, 34),
-                Size = new Size(RW - 28, 92),
+                Size = new Size(RW - 28, 118),
                 Font = new Font("Segoe UI", 7.8f),
                 ForeColor = Color.FromArgb(180, 196, 216),
                 BackColor = Color.FromArgb(20, 30, 48)
@@ -10104,16 +12631,15 @@ namespace SnowyWindows
             _overlay.OnInteractiveModeChanged += SyncInteractiveBadge;
             _overlay.OnPauseChanged += SyncPauseButton;
 
-            // Canlı Ses Barı UI Zamanlayıcısı
+            // Canlı Ses Barı UI Zamanlayıcısı (Tab 2 açıkken güncellenir)
             _uiTimer = new Timer { Interval = 40 };
             _uiTimer.Tick += (s, e) =>
             {
-                if (Visible && _tabPanels[1].Visible)
+                if (Visible && _tabPanels[2].Visible)
                     _audioBar.Level = _overlay.AudioReactiveEnabled ? _overlay.AudioLevel : 0f;
             };
             _uiTimer.Start();
 
-            // Uygulama Pencere ve Sistem Tepsisi (System Tray) İkonu
             Icon customAppIcon = AppIconGenerator.CreateRuntimeIcon();
             this.Icon = customAppIcon;
 
@@ -10127,12 +12653,16 @@ namespace SnowyWindows
             _trayShowItem = new MenuItem("", (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); });
             _trayInteractItem = new MenuItem("", (s, e) => _overlay.ToggleInteractiveMode());
             _traySurpriseItem = new MenuItem("", (s, e) => _overlay.TriggerSurpriseShow());
+            _trayShakeItem = new MenuItem("", (s, e) => _overlay.TriggerSnowglobeShake());
+            _trayPostcardItem = new MenuItem("", (s, e) => _overlay.CaptureWinterPostcard());
             _trayPauseItem = new MenuItem("", (s, e) => _overlay.TogglePause());
             _trayClearItem = new MenuItem("", (s, e) => _overlay.ClearAllSnow());
             _trayExitItem = new MenuItem("", (s, e) => Application.Exit());
             trayMenu.MenuItems.Add(_trayShowItem);
             trayMenu.MenuItems.Add(_trayInteractItem);
             trayMenu.MenuItems.Add(_traySurpriseItem);
+            trayMenu.MenuItems.Add(_trayShakeItem);
+            trayMenu.MenuItems.Add(_trayPostcardItem);
             trayMenu.MenuItems.Add(_trayPauseItem);
             trayMenu.MenuItems.Add(_trayClearItem);
             trayMenu.MenuItems.Add("-");
@@ -10167,7 +12697,7 @@ namespace SnowyWindows
         {
             return new Label
             {
-                Font = new Font("Segoe UI Semibold", 9.0f, FontStyle.Bold),
+                Font = new Font("Segoe UI Semibold", 8.8f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(226, 232, 240),
                 BackColor = Color.FromArgb(20, 30, 48),
                 Location = new Point(x, y),
@@ -10292,19 +12822,27 @@ namespace SnowyWindows
             _normalBtn.Text = Tr("❄ Normal", "❄ Normal");
             _blizzardBtn.Text = Tr("🌪 Tipi", "🌪 Blizzard");
             _clearBtn.Text = Tr("🧹 Temizle (F9)", "🧹 Clear (F9)");
+            _shakeQuickBtn.Text = Tr("🔮 Kar Küresi Salla", "🔮 Shake Globe");
+            _postcardQuickBtn.Text = Tr("📸 Kartpostal (F10)", "📸 Postcard (F10)");
 
             _rightTabs.SetTabs(new string[] {
-                Tr("⛄ Oyuncaklar", "⛄ Toys"),
-                Tr("🌌 Atmosfer", "🌌 Atmos"),
+                Tr("⛄ Oyuncak", "⛄ Toys"),
+                Tr("🌌 Sahne", "🌌 Scene"),
+                Tr("🎉 Kutlama", "🎉 Party"),
                 Tr("⚙️ Sistem", "⚙️ System")
             });
 
-            // Tab 0
+            // Tab 0: Oyuncaklar
             _snowmenCardHdr.Text = Tr("⛄ Kardan Adamlar & Kartopu", "⛄ Snowmen & Snowballs");
             _snowmanBtn.Text = Tr("⛄ Kardan Adam", "⛄ Add Snowman");
             _ballBtn.Text = Tr("⚪ Kartopu Ekle", "⚪ Add Snowball");
             _fightToggle.Text = Tr("🥊 Kardan Adam Savaşı (AI)", "🥊 Snowman Fight (AI)");
-            _snowmanTipLbl.Text = Tr("İpucu: F8 modunda kardan adama sağ tıkla → Gardırop & Renkli İsim Etiketi!", "Tip: In F8 mode, right-click any snowman → Wardrobe & Colored Name Tag!");
+            _snowmanTipLbl.Text = Tr("F8'de sağ tıkla → Gardırop & Renkli İsim Etiketi!", "Right-click in F8 → Wardrobe & Colored Name Tag!");
+
+            _treeCardHdr.Text = Tr("🎄 Özelleştirilebilir Yılbaşı Ağacı", "🎄 Custom Christmas Tree");
+            _treeBtn.Text = Tr("🎄 Ağaç Ekle", "🎄 Add Tree");
+            _removeTreeBtn.Text = Tr("🗑 Ağaç Sil", "🗑 Remove Tree");
+            _treeTipLbl.Text = Tr("F8'de sağ tıkla → Süsle, Işık Seç & %60–%160 Boyutlandır!", "Right-click in F8 → Decorate, Lights & Resize 60%–160%!");
 
             _penguinCardHdr.Text = Tr("🐧 Masaüstü Penguenleri", "🐧 Desktop Penguins");
             _penguinBtn.Text = Tr("🐧 Penguen Ekle", "🐧 Add Penguin");
@@ -10316,43 +12854,63 @@ namespace SnowyWindows
             _fireBtn.Text = Tr("🔥 Kamp Ateşi", "🔥 Add Campfire");
             _removeFireBtn.Text = Tr("🗑 Ateş Sil", "🗑 Remove Fire");
 
-            _toysHintLbl.Text = Tr("🎁 Noel Baba'nın bıraktığı hediyelere tıkla, 🚂 trene tıklayıp düdük çal veya orta tıkla havai fişek fırlat!", "🎁 Click Santa's gifts, click 🚂 train to toot whistle, or middle-click for fireworks!");
-
-            // Tab 1
-            _atmoCardHdr.Text = Tr("✨ Gökyüzü, Dekor & Ulaşım", "✨ Sky, Decor & Transit");
+            // Tab 1: Sahne & Doğa
+            _atmoCardHdr.Text = Tr("✨ Gökyüzü, Dekor & Fenerler", "✨ Sky, Decor & Lanterns");
             _lightsToggle.Text = Tr("🎄 Pencere Işıkları", "🎄 Window Fairy Lights");
             _iciclesToggle.Text = Tr("🧊 Buz Sarkıtları", "🧊 Window Icicles");
             _frostToggle.Text = Tr("❄️ Ekran Köşesi Buzlanması", "❄️ Interactive Corner Frost");
             _auroraToggle.Text = Tr("🌌 Kuzey Işıkları & Yıldızlar", "🌌 Aurora & Shooting Stars");
             _santaToggle.Text = Tr("🎅 Noel Baba & Ren Geyikleri", "🎅 Santa & Reindeer Flyby");
+            _lanternsToggle.Text = Tr("🏮 Süzülen Dilek Fenerleri", "🏮 Floating Wish Lanterns");
+
+            _lifeCardHdr.Text = Tr("🚂 Ulaşım, Kuşlar & İmleç Büyüsü", "🚂 Transit, Birds & Magic Trail");
             _cableCarToggle.Text = Tr("🚡 Pencereler Arası Teleferik", "🚡 Inter-Window Cable Car");
             _trainToggle.Text = Tr("🚂 Kutup Ekspresi Treni", "🚂 Polar Express Train");
+            _birdsToggle.Text = Tr("🐦 Kış Kuşları (Ağaç & Pencere)", "🐦 Winter Birds (Robin & Owl)");
+            _cursorTrailToggle.Text = Tr("✨ Fare İmleci Kış Işıltısı", "✨ Cursor Magic Snow Trail");
+
+            _toysHintLbl.Text = Tr(
+                "💡 İpucu: Kış kuşları pencerelere ve yılbaşı ağacının dallarına konar! F8 modunda dilek fenerlerine, hediyelere veya trene tıklayabilirsiniz.",
+                "💡 Tip: Winter birds perch on windows and Christmas tree branches! In F8 mode, click wish lanterns, gifts, or the Polar Express.");
+
+            // Tab 2: Kutlama, Ses & Kartpostal
+            _celebCardHdr.Text = Tr("⏳ Yılbaşı Geri Sayımı & Kar Küresi", "⏳ New Year Countdown & Globe");
+            _countdownToggle.Text = Tr("⏳ Yeni Yıl Geri Sayım Sayacı", "⏳ New Year Countdown Widget");
+            _shakeToggle.Text = Tr("🔮 Fare Sallayınca Kar Küresi Salla", "🔮 Auto-Shake Globe with Mouse");
+            _testCelebBtn.Text = Tr("🎉 Kutlamayı Test Et", "🎉 Test Celebration");
+            _shakeCardBtn.Text = Tr("🔮 Şimdi Salla", "🔮 Shake Now");
 
             _audioCardHdr.Text = Tr("🎧 Ses & Müzik Etkileşimi", "🎧 Sound & Music Sync");
             _soundToggle.Text = Tr("🔊 Kış Ses Efektleri", "🔊 Winter Sound Effects");
             _audioReactiveToggle.Text = Tr("🎵 Müziğe Duyarlı Mod (WASAPI)", "🎵 Music Reactive (WASAPI)");
             _audioMeterLbl.Text = Tr("Canlı Sistem Ses Seviyesi", "Live System Audio Level");
-            _audioHintLbl.Text = Tr("Spotify / YouTube ritmiyle ışıklar, aurora ve kardan adamlar tepki verir.", "Lights, aurora, penguins & snowmen pulse with Spotify / YouTube music.");
+            _audioHintLbl.Text = Tr("Spotify / YouTube ritmiyle ağaç ışıkları, aurora ve kardan adamlar tepki verir.", "Tree lights, aurora, penguins & snowmen pulse with Spotify / YouTube music.");
 
-            // Tab 2
+            _postcardCardHdr.Text = Tr("📸 Masaüstü Kış Kartpostalı", "📸 Desktop Winter Postcard");
+            _postcardBtn.Text = Tr("📸 Şimdi Kartpostal Çek (F10)", "📸 Capture Winter Postcard (F10)");
+            _postcardHintLbl.Text = Tr("Karlı masaüstünüzü buz çerçevesiyle PNG olarak Masaüstüne kaydeder.", "Saves your snowy desktop with a frost border frame directly to your Desktop.");
+
+            // Tab 3: Sistem & Kayıt
             _sysDisplayHdr.Text = Tr("🖥️ Ekran & Performans", "🖥️ Display & Performance");
             _perfToggle.Text = Tr("⚡ Performans Modu (Hafif)", "⚡ Performance Mode (Light)");
             _autoPauseToggle.Text = Tr("🎬 Tam Ekranda Duraklat", "🎬 Auto-Pause in Fullscreen");
 
             _sysSaveHdr.Text = Tr("💾 Başlangıç & Sahne Kaydı", "💾 Startup & Persistence");
             _startupToggle.Text = Tr("🚀 Windows ile Otomatik Başlat", "🚀 Start with Windows");
-            _rememberSnowmenToggle.Text = Tr("💾 Kardan Adamları Hatırla", "💾 Remember Snowmen");
-            _saveNowBtn.Text = Tr("💾 Ayarları & Kardan Adamları Kaydet", "💾 Save Settings & Snowmen Now");
+            _rememberSnowmenToggle.Text = Tr("💾 Kardan Adam & Ağaçları Hatırla", "💾 Remember Snowmen & Trees");
+            _saveNowBtn.Text = Tr("💾 Ayarları & Sahneyi Şimdi Kaydet", "💾 Save Settings & Scene Now");
 
             _shortcutsHdr.Text = Tr("⌨️ Hızlı Kısayollar", "⌨️ Quick Shortcuts");
             _shortcutsBody.Text = Tr(
-                "• F8 : Etkileşim / Geçirgen Mod\n• F6 : Sürpriz Havai Fişek & Noel Baba\n• F7 : Duraklat   •   F9 : Tümünü Temizle\n• Sağ Tık ⛄ : Gardırop & İsim   •   Orta Tık : Havai Fişek",
-                "• F8 : Interactive / Click-Through Mode\n• F6 : Surprise Fireworks & Santa Show\n• F7 : Pause   •   F9 : Clear All\n• Right-Click ⛄ : Wardrobe & Tag   •   Middle-Click : Firework");
+                "• F8 : Etkileşim / Geçirgen Mod\n• F6 : Sürpriz Havai Fişek & Noel Baba\n• F10 : Kış Kartpostalı Çek (PNG)\n• F7 : Duraklat   •   F9 : Tümünü Temizle\n• Sağ Tık ⛄ / 🎄 : Gardırop / Ağaç Süsle\n• Orta Tık : Havai Fişek   •   Fare Salla : Kar Küresi",
+                "• F8 : Interactive / Click-Through Mode\n• F6 : Surprise Fireworks & Santa Show\n• F10 : Capture Winter Postcard (PNG)\n• F7 : Pause   •   F9 : Clear All\n• Right-Click ⛄ / 🎄 : Wardrobe / Tree Studio\n• Middle-Click : Firework   •   Wiggle Mouse : Shake Globe");
 
             // Tray
             _trayShowItem.Text = Tr("Kontrol Panelini Göster", "Show Control Panel");
             _trayInteractItem.Text = Tr("Etkileşim Modu (F8)", "Interactive Mode (F8)");
             _traySurpriseItem.Text = Tr("Sürpriz Gösteri! (F6)", "Surprise Show! (F6)");
+            _trayShakeItem.Text = Tr("Kar Küresi Salla", "Shake Snowglobe");
+            _trayPostcardItem.Text = Tr("Kış Kartpostalı Çek (F10)", "Capture Postcard (F10)");
             _trayPauseItem.Text = Tr("Duraklat / Devam (F7)", "Pause / Resume (F7)");
             _trayClearItem.Text = Tr("Karları Temizle (F9)", "Clear Snow (F9)");
             _trayExitItem.Text = Tr("Çıkış", "Exit");
@@ -10475,7 +13033,7 @@ namespace SnowyWindows
     }
 
     // ========================================================================
-    // 10b. AYARLAR & KARDAN ADAMLARIN KALICI SAKLANMASI (%AppData%\SnowyWindows\)
+    // 10b. AYARLAR, KARDAN ADAMLAR & YILBAŞI AĞAÇLARI KALICI KAYDI (%AppData%\SnowyWindows\)
     // ========================================================================
     internal static class SettingsStore
     {
@@ -10533,6 +13091,11 @@ namespace SnowyWindows
                         case "sound": o.SoundEnabled = f > 0.5f; break;
                         case "audioReactive": o.AudioReactiveEnabled = f > 0.5f; break;
                         case "rememberSnowmen": o.RememberSnowmen = f > 0.5f; break;
+                        case "countdown": o.CountdownEnabled = f > 0.5f; break;
+                        case "lanterns": o.LanternsEnabled = f > 0.5f; break;
+                        case "birds": o.BirdsEnabled = f > 0.5f; break;
+                        case "cursorTrail": o.CursorTrailEnabled = f > 0.5f; break;
+                        case "shake": o.ShakeEnabled = f > 0.5f; break;
                         case "blizzard": o.BlizzardMode = f > 0.5f; break;
                         case "multiMonitor": if (f > 0.5f) o.SetMultiMonitorMode(true); break;
                         case "autoPause": o.AutoPauseOnFullscreen = f > 0.5f; break;
@@ -10571,6 +13134,11 @@ namespace SnowyWindows
                     "sound=" + (o.SoundEnabled ? "1" : "0"),
                     "audioReactive=" + (o.AudioReactiveEnabled ? "1" : "0"),
                     "rememberSnowmen=" + (o.RememberSnowmen ? "1" : "0"),
+                    "countdown=" + (o.CountdownEnabled ? "1" : "0"),
+                    "lanterns=" + (o.LanternsEnabled ? "1" : "0"),
+                    "birds=" + (o.BirdsEnabled ? "1" : "0"),
+                    "cursorTrail=" + (o.CursorTrailEnabled ? "1" : "0"),
+                    "shake=" + (o.ShakeEnabled ? "1" : "0"),
                     "blizzard=" + (o.BlizzardMode ? "1" : "0"),
                     "multiMonitor=" + (o.MultiMonitorEnabled ? "1" : "0"),
                     "autoPause=" + (o.AutoPauseOnFullscreen ? "1" : "0"),
@@ -10673,6 +13241,84 @@ namespace SnowyWindows
                     if (!string.IsNullOrEmpty(p[16]))
                         sm.NameTag = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(p[16]));
                     result.Add(sm);
+                }
+            }
+            catch { }
+            return result;
+        }
+    }
+
+    internal static class TreesStore
+    {
+        private static string FilePath
+        {
+            get
+            {
+                string dir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SnowyWindows");
+                return System.IO.Path.Combine(dir, "trees.ini");
+            }
+        }
+
+        public static void Save(List<ChristmasTreeEntity> trees, int screenW)
+        {
+            try
+            {
+                string path = FilePath;
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                System.Globalization.CultureInfo ci = System.Globalization.CultureInfo.InvariantCulture;
+                List<string> lines = new List<string>();
+                int count = Math.Min(6, trees.Count);
+                for (int i = 0; i < count; i++)
+                {
+                    ChristmasTreeEntity tr = trees[i];
+                    float xRatio = Math.Max(0.05f, Math.Min(0.95f, tr.X / Math.Max(1f, screenW)));
+                    string line = string.Join("|", new string[]
+                    {
+                        xRatio.ToString("0.####", ci),
+                        tr.Scale.ToString("0.###", ci),
+                        tr.TreeStyle.ToString(ci),
+                        tr.TopperStyle.ToString(ci),
+                        tr.LightStyle.ToString(ci),
+                        tr.LightAnim.ToString(ci),
+                        tr.OrnamentStyle.ToString(ci),
+                        tr.OrnamentColor.ToArgb().ToString(ci),
+                        tr.GarlandStyle.ToString(ci),
+                        tr.HasGifts ? "1" : "0"
+                    });
+                    lines.Add(line);
+                }
+                System.IO.File.WriteAllLines(path, lines.ToArray());
+            }
+            catch { }
+        }
+
+        public static List<ChristmasTreeEntity> Load(int screenW, Random rng)
+        {
+            List<ChristmasTreeEntity> result = new List<ChristmasTreeEntity>();
+            try
+            {
+                string path = FilePath;
+                if (!System.IO.File.Exists(path)) return result;
+                System.Globalization.CultureInfo ci = System.Globalization.CultureInfo.InvariantCulture;
+                string[] lines = System.IO.File.ReadAllLines(path);
+                for (int i = 0; i < lines.Length && result.Count < 6; i++)
+                {
+                    string[] p = lines[i].Split('|');
+                    if (p.Length < 10) continue;
+                    float xRatio = float.Parse(p[0], ci);
+                    float sc = float.Parse(p[1], ci);
+                    ChristmasTreeEntity tr = new ChristmasTreeEntity(xRatio * screenW, 0f, IntPtr.Zero, rng);
+                    tr.ApplyScale(sc);
+                    tr.TreeStyle = Math.Max(0, Math.Min(3, int.Parse(p[2], ci)));
+                    tr.TopperStyle = Math.Max(0, Math.Min(3, int.Parse(p[3], ci)));
+                    tr.LightStyle = Math.Max(0, Math.Min(3, int.Parse(p[4], ci)));
+                    tr.LightAnim = Math.Max(0, Math.Min(3, int.Parse(p[5], ci)));
+                    tr.OrnamentStyle = Math.Max(0, Math.Min(3, int.Parse(p[6], ci)));
+                    tr.OrnamentColor = Color.FromArgb(int.Parse(p[7], ci));
+                    tr.GarlandStyle = Math.Max(0, Math.Min(3, int.Parse(p[8], ci)));
+                    tr.HasGifts = (p[9] == "1");
+                    result.Add(tr);
                 }
             }
             catch { }
