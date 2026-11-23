@@ -51,6 +51,7 @@ namespace SnowyWindows
         public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
         public const int DWMWA_CLOAKED = 14;
 
+        public const int VK_F6 = 0x75;
         public const int VK_F7 = 0x76;
         public const int VK_F8 = 0x77;
         public const int VK_F9 = 0x78;
@@ -340,6 +341,108 @@ namespace SnowyWindows
         public int Ttl;
         public int MaxTtl;
         public bool Active;
+    }
+
+    internal struct SantaSparkle
+    {
+        public float X;
+        public float Y;
+        public float Vx;
+        public float Vy;
+        public float Size;
+        public Color Color;
+        public int Ttl;
+        public int MaxTtl;
+        public bool Active;
+    }
+
+    internal struct ShootingStar
+    {
+        public float X;
+        public float Y;
+        public float Vx;
+        public float Vy;
+        public float TailLen;
+        public int Ttl;
+        public int MaxTtl;
+        public Color Color;
+        public bool Active;
+    }
+
+    internal struct FireworkRocket
+    {
+        public float X;
+        public float Y;
+        public float Vx;
+        public float Vy;
+        public float TargetY;
+        public Color PrimaryColor;
+        public Color SecondaryColor;
+        public int Pattern; // 0: Klasik Küre, 1: Çift Halka, 2: Altın Salkım (Willow)
+        public bool Active;
+    }
+
+    internal struct FireworkSpark
+    {
+        public float X;
+        public float Y;
+        public float PrevX;
+        public float PrevY;
+        public float Vx;
+        public float Vy;
+        public float Drag;
+        public float Gravity;
+        public float Size;
+        public Color Color;
+        public int Ttl;
+        public int MaxTtl;
+        public bool Twinkle;
+        public bool Active;
+    }
+
+    internal sealed class GiftBoxEntity
+    {
+        public float X;
+        public float Y;
+        public float Vx;
+        public float Vy;
+        public float SwayPhase;
+        public float Size;
+        public bool HasParachute;
+        public IntPtr SurfaceHwnd;
+        public Color BoxColor;
+        public Color RibbonColor;
+        public int LifeTicks;
+        public float PulsePhase;
+
+        public GiftBoxEntity(float x, float y, Random rng)
+        {
+            X = x;
+            Y = y;
+            Vx = (float)(rng.NextDouble() * 0.6 - 0.3);
+            Vy = 1.05f + (float)rng.NextDouble() * 0.35f;
+            SwayPhase = (float)(rng.NextDouble() * Math.PI * 2.0);
+            Size = 18f + (float)rng.NextDouble() * 4f;
+            HasParachute = true;
+            SurfaceHwnd = IntPtr.Zero;
+            LifeTicks = 60 * 75; // 75 saniye sonra nazikçe kaybolur
+
+            Color[] boxes = {
+                Color.FromArgb(248, 220, 38, 38),
+                Color.FromArgb(248, 37, 99, 235),
+                Color.FromArgb(248, 16, 185, 129),
+                Color.FromArgb(248, 147, 51, 234),
+                Color.FromArgb(248, 217, 70, 239)
+            };
+            Color[] ribbons = {
+                Color.FromArgb(255, 250, 204, 21),
+                Color.FromArgb(255, 248, 250, 252),
+                Color.FromArgb(255, 251, 146, 60),
+                Color.FromArgb(255, 125, 211, 252)
+            };
+            BoxColor = boxes[rng.Next(boxes.Length)];
+            RibbonColor = ribbons[rng.Next(ribbons.Length)];
+        }
     }
 
     // ========================================================================
@@ -684,6 +787,10 @@ namespace SnowyWindows
         public float Y;
         public float Vx;
         public float Vy;
+        public float BaseR1;
+        public float BaseR2;
+        public float BaseR3;
+        public float Scale = 1.0f;
         public float R1; // Alt
         public float R2; // Orta
         public float R3; // Kafa
@@ -691,60 +798,762 @@ namespace SnowyWindows
         public bool Dragging;
         public float TiltAngle;
         public float TiltVel;
-        public int HatStyle; // 0: Kırmızı Ponponlu Kış Beresi, 1: Klasik Silindir Şapka, 2: Renkli Kış Beresi
+
+        // Gardırop & Görünüm Ayarları
         public bool HasHat = true;
+        public int HatStyle;     // 0: Ponponlu Bere, 1: Silindir Şapka, 2: Noel Şapkası, 3: Altın Taç, 4: Kulaklıklı Şapka, 5: Büyücü Şapkası
         public Color HatColor;
+        public int GlassesStyle; // 0: Yok, 1: Güneş Gözlüğü, 2: Yuvarlak Gözlük, 3: Monokl, 4: Kayak Gözlüğü
+        public int FaceStyle;    // 0: Klasik, 1: Pembe Yanak & Gülümseme, 2: Bıyık, 3: Pipo
+        public int ScarfStyle;   // 0: Yok, 1: Klasik Atkı, 2: Çizgili Atkı, 3: Papyon, 4: Kürklü Yaka
         public Color ScarfColor;
+        public int OutfitStyle;  // 0: Kömür Düğme, 1: Kış Yeleği, 2: Yılbaşı Kazağı, 3: Kraliyet Pelerini
+        public Color OutfitColor;
+        public int ArmStyle;     // 0: Dal Kollar, 1: Eldivenli, 2: Süpürge, 3: Baston Şeker, 4: Yok
+
         public int SurpriseTimer; // Vurulunca şaşkın yüz ifadesi süresi
         public int BlinkTimer;
         public int HitCooldown;
+
+        public static readonly Color[] WardrobePalette = new Color[]
+        {
+            Color.FromArgb(250, 220, 38, 38),   // 0: Noel Kırmızısı
+            Color.FromArgb(250, 30, 41, 59),    // 1: Gece Laciverti
+            Color.FromArgb(250, 37, 99, 235),   // 2: Kraliyet Mavisi
+            Color.FromArgb(250, 16, 185, 129),  // 3: Zümrüt Yeşili
+            Color.FromArgb(250, 245, 158, 11),  // 4: Altın Sarısı
+            Color.FromArgb(250, 147, 51, 234),  // 5: Büyücü Moru
+            Color.FromArgb(250, 236, 72, 153),  // 6: Pembe
+            Color.FromArgb(250, 226, 232, 240)  // 7: Kar Beyazı
+        };
 
         public SnowmanEntity(float x, float y, float r1, float r2, float r3, IntPtr surfaceHwnd, Random rng)
         {
             X = x;
             Y = y;
-            R1 = Math.Max(10f, Math.Min(26f, r1));
-            R2 = Math.Max(8f, Math.Min(20f, r2));
-            R3 = Math.Max(6.5f, Math.Min(16f, r3));
+            BaseR1 = Math.Max(10f, Math.Min(26f, r1));
+            BaseR2 = Math.Max(8f, Math.Min(20f, r2));
+            BaseR3 = Math.Max(6.5f, Math.Min(16f, r3));
+            ApplyScale(1.0f);
             SurfaceHwnd = surfaceHwnd;
 
-            // Şapka stili dağılımı: Kırmızı ponponlu bere (%55), silindir şapka (%25), renkli bere (%20)
+            // Varsayılan kış kombini
             double roll = rng.NextDouble();
-            if (roll < 0.55)
+            if (roll < 0.45)
             {
                 HatStyle = 0;
-                HatColor = Color.FromArgb(250, 220, 38, 38); // Parlak Noel beresi kırmızısı
+                HatColor = WardrobePalette[0];
             }
-            else if (roll < 0.80)
+            else if (roll < 0.70)
             {
                 HatStyle = 1;
-                Color[] topHats = {
-                    Color.FromArgb(248, 30, 41, 59),
-                    Color.FromArgb(248, 127, 29, 29),
-                    Color.FromArgb(248, 30, 58, 138)
-                };
-                HatColor = topHats[rng.Next(topHats.Length)];
+                HatColor = WardrobePalette[1];
+            }
+            else if (roll < 0.88)
+            {
+                HatStyle = 2;
+                HatColor = WardrobePalette[0];
             }
             else
             {
-                HatStyle = 2;
-                Color[] beanies = {
-                    Color.FromArgb(248, 37, 99, 235),
-                    Color.FromArgb(248, 5, 150, 105),
-                    Color.FromArgb(248, 147, 51, 234)
-                };
-                HatColor = beanies[rng.Next(beanies.Length)];
+                HatStyle = 4;
+                HatColor = WardrobePalette[2];
             }
 
-            Color[] scarves = {
-                Color.FromArgb(248, 239, 68, 68),
-                Color.FromArgb(248, 245, 158, 11),
-                Color.FromArgb(248, 59, 130, 246),
-                Color.FromArgb(248, 16, 185, 129),
-                Color.FromArgb(248, 236, 72, 153)
-            };
-            ScarfColor = scarves[rng.Next(scarves.Length)];
+            ScarfStyle = (rng.NextDouble() < 0.65) ? 1 : 2;
+            ScarfColor = WardrobePalette[rng.Next(0, 7)];
+            OutfitStyle = 0;
+            OutfitColor = WardrobePalette[rng.Next(0, 6)];
+            ArmStyle = (rng.NextDouble() < 0.6) ? 0 : 1;
+            FaceStyle = (rng.NextDouble() < 0.55) ? 1 : 0;
+            GlassesStyle = 0;
             BlinkTimer = 60 + rng.Next(140);
+        }
+
+        public void ApplyScale(float newScale)
+        {
+            Scale = Math.Max(0.75f, Math.Min(1.45f, newScale));
+            R1 = BaseR1 * Scale;
+            R2 = BaseR2 * Scale;
+            R3 = BaseR3 * Scale;
+        }
+
+        public void ApplyPreset(int presetId)
+        {
+            HasHat = true;
+            if (presetId == 0)
+            {
+                // Noel Baba Stili
+                HatStyle = 2;
+                HatColor = WardrobePalette[0];
+                GlassesStyle = 2;
+                FaceStyle = 1;
+                ScarfStyle = 4;
+                ScarfColor = WardrobePalette[0];
+                OutfitStyle = 2;
+                OutfitColor = WardrobePalette[0];
+                ArmStyle = 3; // Baston şeker
+            }
+            else if (presetId == 1)
+            {
+                // Beyefendi Stili
+                HatStyle = 1;
+                HatColor = WardrobePalette[1];
+                GlassesStyle = 3; // Monokl
+                FaceStyle = 2;    // Bıyık
+                ScarfStyle = 3;   // Papyon
+                ScarfColor = WardrobePalette[0];
+                OutfitStyle = 1;  // Yelek
+                OutfitColor = WardrobePalette[1];
+                ArmStyle = 2;     // Süpürge
+            }
+            else if (presetId == 2)
+            {
+                // Havalı Kayakçı Stili
+                HatStyle = 0;
+                HatColor = WardrobePalette[2];
+                GlassesStyle = 1; // Güneş gözlüğü
+                FaceStyle = 1;
+                ScarfStyle = 2;   // Çizgili atkı
+                ScarfColor = WardrobePalette[4];
+                OutfitStyle = 2;  // Kazak
+                OutfitColor = WardrobePalette[3];
+                ArmStyle = 1;     // Eldiven
+            }
+            else
+            {
+                // Kış Büyücüsü Stili
+                HatStyle = 5;
+                HatColor = WardrobePalette[5];
+                GlassesStyle = 2;
+                FaceStyle = 3;    // Pipo
+                ScarfStyle = 4;
+                ScarfColor = WardrobePalette[4];
+                OutfitStyle = 3;  // Pelerin
+                OutfitColor = WardrobePalette[5];
+                ArmStyle = 2;
+            }
+        }
+
+        public void RandomizeOutfit(Random rng)
+        {
+            HasHat = rng.NextDouble() > 0.08;
+            HatStyle = rng.Next(6);
+            HatColor = WardrobePalette[rng.Next(WardrobePalette.Length)];
+            GlassesStyle = rng.Next(5);
+            FaceStyle = rng.Next(4);
+            ScarfStyle = 1 + rng.Next(4);
+            ScarfColor = WardrobePalette[rng.Next(WardrobePalette.Length)];
+            OutfitStyle = rng.Next(4);
+            OutfitColor = WardrobePalette[rng.Next(WardrobePalette.Length)];
+            ArmStyle = rng.Next(4);
+        }
+    }
+
+    internal static class SnowmanRenderer
+    {
+        private static readonly Pen OutlinePen = new Pen(Color.FromArgb(185, 148, 163, 184), 1.3f);
+        private static readonly SolidBrush CoalBrush = new SolidBrush(Color.FromArgb(248, 15, 23, 42));
+        private static readonly SolidBrush CarrotBrush = new SolidBrush(Color.FromArgb(252, 249, 115, 22));
+        private static readonly SolidBrush WhiteBrush = new SolidBrush(Color.FromArgb(252, 255, 255, 255));
+
+        public static void DrawShadedSnowSphere(Graphics g, float cx, float cy, float r)
+        {
+            RectangleF rect = new RectangleF(cx - r, cy - r, r * 2f, r * 2f);
+            using (LinearGradientBrush sphereBrush = new LinearGradientBrush(
+                rect,
+                Color.FromArgb(255, 255, 255, 255),
+                Color.FromArgb(245, 191, 219, 254),
+                45f))
+            {
+                g.FillEllipse(sphereBrush, rect);
+            }
+            g.DrawEllipse(OutlinePen, rect);
+        }
+
+        public static void DrawSnowman(
+            Graphics g, SnowmanEntity sm,
+            float drawX, float drawY, float scaleOverride,
+            float lookTargetX, float lookTargetY, float time, bool isHighlighted)
+        {
+            GraphicsState state = g.Save();
+            g.TranslateTransform(drawX, drawY);
+            if (scaleOverride != 1.0f)
+                g.ScaleTransform(scaleOverride, scaleOverride);
+            g.RotateTransform(sm.TiltAngle);
+
+            float r1 = sm.R1;
+            float y1 = -r1 + 2f;
+            float r2 = sm.R2;
+            float y2 = y1 - r1 - r2 * 0.64f;
+            float r3 = sm.R3;
+            float y3 = y2 - r2 - r3 * 0.64f;
+            float s = r2 / 8.5f;
+
+            // Seçili kardan adam için zarif alt ışık halkası (gardırop açıkken)
+            if (isHighlighted)
+            {
+                float pulse = 0.65f + 0.35f * (float)Math.Sin(time * 5.0f);
+                int glowA = (int)(85 + 55 * pulse);
+                using (SolidBrush halo = new SolidBrush(Color.FromArgb(glowA / 3, 56, 189, 248)))
+                using (Pen ring = new Pen(Color.FromArgb(glowA, 56, 189, 248), 2.0f))
+                {
+                    g.FillEllipse(halo, -r1 * 1.35f, -6f, r1 * 2.7f, 12f);
+                    g.DrawEllipse(ring, -r1 * 1.35f, -6f, r1 * 2.7f, 12f);
+                }
+            }
+
+            // 1. Pelerin (Vücudun ARKASINDA çizilir!)
+            if (sm.OutfitStyle == 3)
+            {
+                float capeSway = (float)Math.Sin(time * 2.4f) * 2.5f * s;
+                PointF[] capePts = new PointF[]
+                {
+                    new PointF(-r2 * 0.75f, y2 - r2 * 0.65f),
+                    new PointF(r2 * 0.75f, y2 - r2 * 0.65f),
+                    new PointF(r1 * 1.32f + capeSway, y1 + r1 * 0.75f),
+                    new PointF(-r1 * 1.32f + capeSway, y1 + r1 * 0.75f)
+                };
+                using (SolidBrush capeBrush = new SolidBrush(sm.OutfitColor))
+                using (Pen capeTrim = new Pen(Color.FromArgb(230, 250, 204, 21), Math.Max(1.4f, 1.6f * s)))
+                {
+                    g.FillPolygon(capeBrush, capePts);
+                    g.DrawPolygon(capeTrim, capePts);
+                }
+            }
+
+            // 2. Kollar & Elde Tutulan Aksesuarlar (Gövde yanlarından çıkar)
+            if (sm.ArmStyle != 4)
+                DrawArms(g, sm, r2, y2, s, time);
+
+            // 3. Kardan Adamın 3 Gölgeli Kar Küresi
+            DrawShadedSnowSphere(g, 0f, y1, r1);
+            DrawShadedSnowSphere(g, 0f, y2, r2);
+            DrawShadedSnowSphere(g, 0f, y3, r3);
+
+            // 4. Gövde Kıyafeti (Düğmeler, Yelek veya Yılbaşı Kazağı)
+            DrawBodyOutfit(g, sm, r2, y2, s);
+
+            // 5. Boyun / Atkı / Papyon / Kürklü Yaka
+            if (sm.ScarfStyle != 0)
+                DrawScarfOrNeckwear(g, sm, r2, y2, s);
+
+            // 6. Yüz İfadesi, Gözler, Pembe Yanaklar, Bıyık, Pipo & Havuç Burun
+            DrawFace(g, sm, r3, y3, s, drawX, drawY, lookTargetX, lookTargetY, time);
+
+            // 7. Gözlük / Monokl / Kayak Gözlüğü
+            if (sm.GlassesStyle != 0)
+                DrawGlasses(g, sm.GlassesStyle, r3, y3, s);
+
+            // 8. Şapka
+            if (sm.HasHat)
+            {
+                float hy = y3 - r3 * 0.78f;
+                DrawHatGeometry(g, 0f, hy, r3, s, sm.HatStyle, sm.HatColor);
+            }
+
+            g.Restore(state);
+        }
+
+        private static void DrawArms(Graphics g, SnowmanEntity sm, float r2, float y2, float s, float time)
+        {
+            float wave = (float)Math.Sin(time * 2.1f) * 2.2f * s;
+            using (Pen twigPen = new Pen(Color.FromArgb(245, 120, 74, 42), Math.Max(1.8f, 2.2f * s))
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round
+            })
+            {
+                // Sol dal kol
+                float lx1 = -r2 * 0.85f;
+                float ly1 = y2 - r2 * 0.1f;
+                float lx2 = -r2 * 1.95f;
+                float ly2 = y2 - r2 * 0.65f + wave;
+                g.DrawLine(twigPen, lx1, ly1, lx2, ly2);
+                if (sm.ArmStyle == 0)
+                {
+                    g.DrawLine(twigPen, lx2 + 3f * s, ly2 + 1.5f * s, lx2 - 2.5f * s, ly2 - 3.2f * s);
+                    g.DrawLine(twigPen, lx2 + 3f * s, ly2 + 1.5f * s, lx2 - 3.5f * s, ly2 + 1.5f * s);
+                }
+
+                // Sağ dal kol
+                float rx1 = r2 * 0.85f;
+                float ry1 = y2 - r2 * 0.1f;
+                float rx2 = r2 * 1.95f;
+                float ry2 = y2 - r2 * 0.65f - wave;
+                g.DrawLine(twigPen, rx1, ry1, rx2, ry2);
+                if (sm.ArmStyle == 0)
+                {
+                    g.DrawLine(twigPen, rx2 - 3f * s, ry2 + 1.5f * s, rx2 + 2.5f * s, ry2 - 3.2f * s);
+                    g.DrawLine(twigPen, rx2 - 3f * s, ry2 + 1.5f * s, rx2 + 3.5f * s, ry2 + 1.5f * s);
+                }
+
+                // 1: Eldivenler
+                if (sm.ArmStyle == 1)
+                {
+                    Color mitCol = sm.ScarfColor.A > 0 ? sm.ScarfColor : Color.FromArgb(245, 220, 38, 38);
+                    using (SolidBrush mb = new SolidBrush(mitCol))
+                    {
+                        float mr = Math.Max(3.2f, 3.6f * s);
+                        g.FillEllipse(mb, lx2 - mr, ly2 - mr, mr * 2f, mr * 2f);
+                        g.FillEllipse(mb, rx2 - mr, ry2 - mr, mr * 2f, mr * 2f);
+                        g.FillEllipse(WhiteBrush, lx2 + mr * 0.2f, ly2 - mr * 0.8f, mr * 0.85f, mr * 0.85f);
+                        g.FillEllipse(WhiteBrush, rx2 - mr * 1.0f, ry2 - mr * 0.8f, mr * 0.85f, mr * 0.85f);
+                    }
+                }
+                // 2: Kış Süpürgesi (sağ elde)
+                else if (sm.ArmStyle == 2)
+                {
+                    using (Pen handlePen = new Pen(Color.FromArgb(245, 161, 98, 47), Math.Max(2.0f, 2.4f * s)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                    {
+                        g.DrawLine(handlePen, rx2 + 1f * s, ry2 - 14f * s, rx2 - 4f * s, ry2 + 16f * s);
+                    }
+                    PointF[] bristles = new PointF[]
+                    {
+                        new PointF(rx2 + 1f * s, ry2 - 12f * s),
+                        new PointF(rx2 - 5f * s, ry2 - 22f * s),
+                        new PointF(rx2 + 7f * s, ry2 - 21f * s)
+                    };
+                    using (SolidBrush strawBrush = new SolidBrush(Color.FromArgb(245, 234, 179, 8)))
+                    using (Pen tiePen = new Pen(Color.FromArgb(245, 220, 38, 38), Math.Max(1.6f, 1.8f * s)))
+                    {
+                        g.FillPolygon(strawBrush, bristles);
+                        g.DrawLine(tiePen, rx2 - 1.5f * s, ry2 - 13.5f * s, rx2 + 3.5f * s, ry2 - 13.5f * s);
+                    }
+                }
+                // 3: Baston Şeker (sağ elde)
+                else if (sm.ArmStyle == 3)
+                {
+                    using (Pen caneWhite = new Pen(Color.White, Math.Max(2.8f, 3.4f * s)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                    using (Pen caneRed = new Pen(Color.FromArgb(250, 220, 38, 38), Math.Max(2.8f, 3.4f * s)) { DashStyle = DashStyle.Dash })
+                    {
+                        g.DrawLine(caneWhite, rx2, ry2 + 8f * s, rx2, ry2 - 10f * s);
+                        g.DrawArc(caneWhite, rx2, ry2 - 15f * s, 8f * s, 8f * s, 180, 180);
+                        g.DrawLine(caneRed, rx2, ry2 + 8f * s, rx2, ry2 - 10f * s);
+                        g.DrawArc(caneRed, rx2, ry2 - 15f * s, 8f * s, 8f * s, 180, 180);
+                    }
+                }
+            }
+        }
+
+        private static void DrawBodyOutfit(Graphics g, SnowmanEntity sm, float r2, float y2, float s)
+        {
+            if (sm.OutfitStyle == 1)
+            {
+                // Kış Yeleği (Butonlu şık yelek)
+                GraphicsState st = g.Save();
+                using (GraphicsPath clip = new GraphicsPath())
+                {
+                    clip.AddEllipse(-r2 + 0.5f, y2 - r2 + 0.5f, (r2 - 0.5f) * 2f, (r2 - 0.5f) * 2f);
+                    g.SetClip(clip, CombineMode.Intersect);
+
+                    using (SolidBrush vestBrush = new SolidBrush(sm.OutfitColor))
+                    {
+                        g.FillRectangle(vestBrush, -r2 * 0.9f, y2 - r2 * 0.72f, r2 * 1.8f, r2 * 1.55f);
+                    }
+                    // Yaka V kesimi
+                    PointF[] vNeck = new PointF[]
+                    {
+                        new PointF(-r2 * 0.35f, y2 - r2 * 0.75f),
+                        new PointF(r2 * 0.35f, y2 - r2 * 0.75f),
+                        new PointF(0f, y2 - r2 * 0.15f)
+                    };
+                    g.FillPolygon(WhiteBrush, vNeck);
+
+                    // Ortada dikiş & altın düğmeler
+                    using (Pen seam = new Pen(Color.FromArgb(140, 15, 23, 42), 1.1f))
+                        g.DrawLine(seam, 0f, y2 - r2 * 0.15f, 0f, y2 + r2 * 0.85f);
+                    using (SolidBrush btnBrush = new SolidBrush(Color.FromArgb(250, 250, 204, 21)))
+                    {
+                        g.FillEllipse(btnBrush, -1.6f * s, y2 - 0.8f * s, 3.2f * s, 3.2f * s);
+                        g.FillEllipse(btnBrush, -1.6f * s, y2 + 3.6f * s, 3.2f * s, 3.2f * s);
+                    }
+                }
+                g.Restore(st);
+            }
+            else if (sm.OutfitStyle == 2)
+            {
+                // Yılbaşı Kazağı (Desenli sıcak kış kazağı)
+                GraphicsState st = g.Save();
+                using (GraphicsPath clip = new GraphicsPath())
+                {
+                    clip.AddEllipse(-r2 + 0.5f, y2 - r2 + 0.5f, (r2 - 0.5f) * 2f, (r2 - 0.5f) * 2f);
+                    g.SetClip(clip, CombineMode.Intersect);
+
+                    using (SolidBrush swBrush = new SolidBrush(sm.OutfitColor))
+                        g.FillRectangle(swBrush, -r2, y2 - r2 * 0.68f, r2 * 2f, r2 * 1.55f);
+
+                    using (Pen trimPen = new Pen(Color.FromArgb(240, 255, 255, 255), Math.Max(1.6f, 2.0f * s)))
+                    {
+                        g.DrawLine(trimPen, -r2, y2 - r2 * 0.18f, r2, y2 - r2 * 0.18f);
+                        g.DrawLine(trimPen, -r2, y2 + r2 * 0.36f, r2, y2 + r2 * 0.36f);
+                    }
+                    // Kar tanesi motif noktaları
+                    using (SolidBrush goldDot = new SolidBrush(Color.FromArgb(248, 253, 224, 71)))
+                    {
+                        float dotS = Math.Max(2.2f, 2.5f * s);
+                        for (int k = -2; k <= 2; k++)
+                            g.FillEllipse(goldDot, k * 3.8f * s - dotS * 0.5f, y2 + 0.5f * s, dotS, dotS);
+                    }
+                }
+                g.Restore(st);
+            }
+            else
+            {
+                // Klasik Kömür Düğmeler (veya Pelerin ön düğmeleri)
+                g.FillEllipse(CoalBrush, -1.8f * s, y2 - 2.8f * s, 3.6f * s, 3.6f * s);
+                g.FillEllipse(CoalBrush, -1.8f * s, y2 + 2.8f * s, 3.6f * s, 3.6f * s);
+            }
+        }
+
+        private static void DrawScarfOrNeckwear(Graphics g, SnowmanEntity sm, float r2, float y2, float s)
+        {
+            float sy = y2 - r2 * 0.72f;
+            if (sm.ScarfStyle == 1 || sm.ScarfStyle == 2)
+            {
+                float w = Math.Max(2.6f, 3.9f * s);
+                using (Pen scarfPen = new Pen(sm.ScarfColor, w) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                {
+                    g.DrawLine(scarfPen, -r2 * 0.84f, sy, r2 * 0.84f, sy);
+                    g.DrawLine(scarfPen, r2 * 0.35f, sy, r2 * 0.58f, sy + 8.8f * s);
+                }
+                if (sm.ScarfStyle == 2)
+                {
+                    // Çizgili atkı şeritleri
+                    using (Pen stripePen = new Pen(Color.FromArgb(235, 255, 255, 255), Math.Max(1.3f, 1.5f * s)))
+                    {
+                        g.DrawLine(stripePen, -r2 * 0.48f, sy - w * 0.45f, -r2 * 0.32f, sy + w * 0.45f);
+                        g.DrawLine(stripePen, -r2 * 0.04f, sy - w * 0.45f, r2 * 0.12f, sy + w * 0.45f);
+                        g.DrawLine(stripePen, r2 * 0.38f, sy + 3.2f * s, r2 * 0.62f, sy + 4.4f * s);
+                        g.DrawLine(stripePen, r2 * 0.44f, sy + 6.4f * s, r2 * 0.68f, sy + 7.6f * s);
+                    }
+                }
+            }
+            else if (sm.ScarfStyle == 3)
+            {
+                // Şık Papyon
+                using (SolidBrush bowBrush = new SolidBrush(sm.ScarfColor))
+                using (Pen bowOutline = new Pen(Color.FromArgb(140, 15, 23, 42), 1.0f))
+                {
+                    PointF[] leftWing = new PointF[] {
+                        new PointF(0f, sy),
+                        new PointF(-6.2f * s, sy - 3.2f * s),
+                        new PointF(-6.2f * s, sy + 3.2f * s)
+                    };
+                    PointF[] rightWing = new PointF[] {
+                        new PointF(0f, sy),
+                        new PointF(6.2f * s, sy - 3.2f * s),
+                        new PointF(6.2f * s, sy + 3.2f * s)
+                    };
+                    g.FillPolygon(bowBrush, leftWing);
+                    g.FillPolygon(bowBrush, rightWing);
+                    g.DrawPolygon(bowOutline, leftWing);
+                    g.DrawPolygon(bowOutline, rightWing);
+                    g.FillEllipse(bowBrush, -2.0f * s, sy - 2.0f * s, 4.0f * s, 4.0f * s);
+                }
+            }
+            else if (sm.ScarfStyle == 4)
+            {
+                // Kürklü Kış Yakası + Altın Broş
+                using (Pen furPen = new Pen(Color.FromArgb(245, 241, 245, 249), Math.Max(3.6f, 4.8f * s)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                using (SolidBrush gemBrush = new SolidBrush(sm.ScarfColor))
+                using (Pen goldRim = new Pen(Color.FromArgb(250, 250, 204, 21), Math.Max(1.2f, 1.4f * s)))
+                {
+                    g.DrawArc(furPen, -r2 * 0.85f, sy - 4.5f * s, r2 * 1.7f, 8.5f * s, 10f, 160f);
+                    float gr = Math.Max(2.2f, 2.5f * s);
+                    g.FillEllipse(gemBrush, -gr, sy + 1.8f * s - gr, gr * 2f, gr * 2f);
+                    g.DrawEllipse(goldRim, -gr, sy + 1.8f * s - gr, gr * 2f, gr * 2f);
+                }
+            }
+        }
+
+        private static void DrawFace(
+            Graphics g, SnowmanEntity sm, float r3, float y3, float s,
+            float drawX, float drawY, float lookTargetX, float lookTargetY, float time)
+        {
+            // Pembe yanaklar (Gülümseme stilinde)
+            if (sm.FaceStyle == 1)
+            {
+                using (SolidBrush blush = new SolidBrush(Color.FromArgb(95, 248, 113, 113)))
+                {
+                    g.FillEllipse(blush, -5.6f * s, y3 + 0.8f * s, 3.2f * s, 2.0f * s);
+                    g.FillEllipse(blush, 2.4f * s, y3 + 0.8f * s, 3.2f * s, 2.0f * s);
+                }
+            }
+
+            // Gözler (Fare imlecine doğru hafifçe bakar ve göz kırpar)
+            float lookX = Math.Max(-1.0f, Math.Min(1.0f, (lookTargetX - drawX) / 220f)) * s;
+            float lookY = Math.Max(-0.8f, Math.Min(0.8f, (lookTargetY - (drawY + y3)) / 220f)) * s;
+
+            if (sm.BlinkTimer > 0 && sm.BlinkTimer < 6 && sm.SurpriseTimer == 0)
+            {
+                using (Pen blinkPen = new Pen(Color.FromArgb(245, 15, 23, 42), 1.4f))
+                {
+                    g.DrawLine(blinkPen, -3.8f * s, y3 - 1.5f * s, -1.2f * s, y3 - 1.5f * s);
+                    g.DrawLine(blinkPen, 1.0f * s, y3 - 1.5f * s, 3.6f * s, y3 - 1.5f * s);
+                }
+            }
+            else
+            {
+                float eyeR = (sm.SurpriseTimer > 0) ? 3.0f * s : 2.4f * s;
+                g.FillEllipse(CoalBrush, -3.4f * s + lookX, y3 - 2.6f * s + lookY, eyeR, eyeR);
+                g.FillEllipse(CoalBrush, 1.2f * s + lookX, y3 - 2.6f * s + lookY, eyeR, eyeR);
+            }
+
+            // Ağız / İfade
+            if (sm.SurpriseTimer > 0)
+            {
+                g.FillEllipse(CoalBrush, -1.6f * s, y3 + 2.8f * s, 3.2f * s, 3.6f * s);
+            }
+            else if (sm.FaceStyle == 1)
+            {
+                // Gülümseyen kömür noktaları
+                float d = Math.Max(1.3f, 1.4f * s);
+                g.FillEllipse(CoalBrush, -3.4f * s, y3 + 3.0f * s, d, d);
+                g.FillEllipse(CoalBrush, -1.5f * s, y3 + 4.1f * s, d, d);
+                g.FillEllipse(CoalBrush, 0.5f * s, y3 + 4.1f * s, d, d);
+                g.FillEllipse(CoalBrush, 2.4f * s, y3 + 3.0f * s, d, d);
+            }
+            else if (sm.FaceStyle == 2)
+            {
+                // Beyefendi Bıyığı
+                using (Pen stache = new Pen(Color.FromArgb(245, 51, 65, 85), Math.Max(1.8f, 2.2f * s)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                {
+                    g.DrawBezier(stache,
+                        0f, y3 + 2.7f * s,
+                        -2.2f * s, y3 + 1.8f * s,
+                        -3.8f * s, y3 + 4.4f * s,
+                        -5.4f * s, y3 + 2.8f * s);
+                    g.DrawBezier(stache,
+                        0f, y3 + 2.7f * s,
+                        2.2f * s, y3 + 1.8f * s,
+                        3.8f * s, y3 + 4.4f * s,
+                        5.4f * s, y3 + 2.8f * s);
+                }
+            }
+            else if (sm.FaceStyle == 3)
+            {
+                // Klasik Kış Piposu + Minik Duman Halkaları
+                using (Pen pipeStem = new Pen(Color.FromArgb(248, 120, 53, 15), Math.Max(1.5f, 1.8f * s)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                using (SolidBrush bowlBrush = new SolidBrush(Color.FromArgb(250, 146, 64, 14)))
+                {
+                    g.DrawLine(pipeStem, 1.2f * s, y3 + 3.6f * s, 6.2f * s, y3 + 5.2f * s);
+                    g.FillRectangle(bowlBrush, 5.2f * s, y3 + 2.6f * s, 3.0f * s, 3.6f * s);
+                }
+                float puffPhase = (time * 1.4f) % 1.0f;
+                int puffA = (int)((1f - puffPhase) * 140f);
+                if (puffA > 15)
+                {
+                    using (SolidBrush puff = new SolidBrush(Color.FromArgb(puffA, 226, 232, 240)))
+                    {
+                        float pr = (1.2f + puffPhase * 2.2f) * s;
+                        g.FillEllipse(puff, 6.4f * s + puffPhase * 2.8f * s - pr, y3 + 1.5f * s - puffPhase * 7.5f * s - pr, pr * 2f, pr * 2f);
+                    }
+                }
+            }
+
+            // Havuç burun
+            PointF[] nose = new PointF[] {
+                new PointF(0f, y3 - 0.4f * s),
+                new PointF(8.5f * s, y3 + 1.5f * s),
+                new PointF(0f, y3 + 3.0f * s)
+            };
+            g.FillPolygon(CarrotBrush, nose);
+        }
+
+        private static void DrawGlasses(Graphics g, int style, float r3, float y3, float s)
+        {
+            float ey = y3 - 1.4f * s;
+            if (style == 1)
+            {
+                // Havalı Güneş Gözlüğü
+                using (SolidBrush lens = new SolidBrush(Color.FromArgb(240, 15, 23, 42)))
+                using (Pen frame = new Pen(Color.FromArgb(245, 51, 65, 85), Math.Max(1.2f, 1.4f * s)))
+                using (Pen glint = new Pen(Color.FromArgb(170, 255, 255, 255), Math.Max(1.0f, 1.1f * s)))
+                {
+                    RectangleF lRect = new RectangleF(-5.4f * s, ey - 2.0f * s, 4.4f * s, 3.6f * s);
+                    RectangleF rRect = new RectangleF(1.0f * s, ey - 2.0f * s, 4.4f * s, 3.6f * s);
+                    g.FillRectangle(lens, lRect);
+                    g.FillRectangle(lens, rRect);
+                    g.DrawRectangle(frame, lRect.X, lRect.Y, lRect.Width, lRect.Height);
+                    g.DrawRectangle(frame, rRect.X, rRect.Y, rRect.Width, rRect.Height);
+                    g.DrawLine(frame, -1.0f * s, ey - 0.5f * s, 1.0f * s, ey - 0.5f * s);
+                    g.DrawLine(glint, -4.6f * s, ey - 1.2f * s, -3.0f * s, ey + 0.8f * s);
+                    g.DrawLine(glint, 1.8f * s, ey - 1.2f * s, 3.4f * s, ey + 0.8f * s);
+                }
+            }
+            else if (style == 2)
+            {
+                // Yuvarlak Altın Gözlük
+                using (SolidBrush tint = new SolidBrush(Color.FromArgb(45, 186, 230, 253)))
+                using (Pen gold = new Pen(Color.FromArgb(248, 250, 204, 21), Math.Max(1.2f, 1.35f * s)))
+                {
+                    float gr = 2.5f * s;
+                    g.FillEllipse(tint, -2.5f * s - gr, ey - gr, gr * 2f, gr * 2f);
+                    g.FillEllipse(tint, 2.5f * s - gr, ey - gr, gr * 2f, gr * 2f);
+                    g.DrawEllipse(gold, -2.5f * s - gr, ey - gr, gr * 2f, gr * 2f);
+                    g.DrawEllipse(gold, 2.5f * s - gr, ey - gr, gr * 2f, gr * 2f);
+                    g.DrawLine(gold, -0.1f * s, ey, 0.1f * s, ey);
+                }
+            }
+            else if (style == 3)
+            {
+                // Altın Monokl + Zincir
+                using (SolidBrush tint = new SolidBrush(Color.FromArgb(65, 224, 242, 254)))
+                using (Pen gold = new Pen(Color.FromArgb(250, 250, 204, 21), Math.Max(1.3f, 1.5f * s)))
+                using (Pen chain = new Pen(Color.FromArgb(200, 250, 204, 21), Math.Max(0.9f, 1.0f * s)) { DashStyle = DashStyle.Dot })
+                {
+                    float gr = 2.6f * s;
+                    g.FillEllipse(tint, 2.4f * s - gr, ey - gr, gr * 2f, gr * 2f);
+                    g.DrawEllipse(gold, 2.4f * s - gr, ey - gr, gr * 2f, gr * 2f);
+                    g.DrawBezier(chain,
+                        5.0f * s, ey + 0.6f * s,
+                        6.8f * s, ey + 4.0f * s,
+                        5.0f * s, ey + 8.0f * s,
+                        3.6f * s, ey + 10.5f * s);
+                }
+            }
+            else if (style == 4)
+            {
+                // Parlak Kayak Gözlüğü
+                using (Pen strap = new Pen(Color.FromArgb(235, 30, 41, 59), Math.Max(2.2f, 2.6f * s)))
+                    g.DrawLine(strap, -r3 * 0.96f, ey, r3 * 0.96f, ey);
+                RectangleF visor = new RectangleF(-5.6f * s, ey - 2.4f * s, 11.2f * s, 4.6f * s);
+                using (GraphicsPath vp = GraphicsExt.CreateRoundedRect(visor, 2.0f * s))
+                using (LinearGradientBrush vb = new LinearGradientBrush(
+                    visor,
+                    Color.FromArgb(245, 56, 189, 248),
+                    Color.FromArgb(245, 249, 115, 22),
+                    LinearGradientMode.Horizontal))
+                using (Pen vFrame = new Pen(Color.FromArgb(245, 248, 250, 252), Math.Max(1.1f, 1.3f * s)))
+                {
+                    g.FillPath(vb, vp);
+                    g.DrawPath(vFrame, vp);
+                }
+            }
+        }
+
+        public static void DrawHatGeometry(Graphics g, float cx, float hy, float r3, float s, int style, Color color)
+        {
+            if (style == 0)
+            {
+                // 0: Ponponlu Kış Beresi
+                using (SolidBrush hatBrush = new SolidBrush(color))
+                {
+                    float domeW = r3 * 1.95f;
+                    float domeH = r3 * 1.55f;
+                    g.FillPie(hatBrush, cx - domeW * 0.5f, hy - domeH * 0.75f, domeW, domeH * 1.4f, 180, 180);
+                }
+                float brimW = r3 * 2.15f;
+                float brimH = Math.Max(3.5f, 4.2f * s);
+                g.FillEllipse(WhiteBrush, cx - brimW * 0.5f, hy - brimH * 0.5f, brimW, brimH);
+                g.DrawEllipse(OutlinePen, cx - brimW * 0.5f, hy - brimH * 0.5f, brimW, brimH);
+
+                float pomR = Math.Max(3.2f, 3.8f * s);
+                float pomY = hy - r3 * 1.22f;
+                g.FillEllipse(WhiteBrush, cx - pomR, pomY - pomR, pomR * 2f, pomR * 2f);
+                g.DrawEllipse(OutlinePen, cx - pomR, pomY - pomR, pomR * 2f, pomR * 2f);
+            }
+            else if (style == 1)
+            {
+                // 1: Klasik Silindir Şapka (Şeritli)
+                using (SolidBrush hatBrush = new SolidBrush(color))
+                using (Pen brimPen = new Pen(color, Math.Max(2.4f, 3.0f * s)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                using (SolidBrush bandBrush = new SolidBrush(Color.FromArgb(245, 220, 38, 38)))
+                {
+                    g.DrawLine(brimPen, cx - r3 * 1.24f, hy, cx + r3 * 1.24f, hy);
+                    g.FillRectangle(hatBrush, cx - r3 * 0.76f, hy - 9.4f * s, r3 * 1.52f, 9.4f * s);
+                    g.FillRectangle(bandBrush, cx - r3 * 0.76f, hy - 2.6f * s, r3 * 1.52f, 2.0f * s);
+                }
+            }
+            else if (style == 2)
+            {
+                // 2: Kıvrık Noel Şapkası
+                using (GraphicsPath gp = new GraphicsPath())
+                {
+                    gp.AddPolygon(new PointF[] {
+                        new PointF(cx - r3 * 0.96f, hy),
+                        new PointF(cx + r3 * 0.96f, hy),
+                        new PointF(cx + r3 * 1.15f, hy - r3 * 1.15f),
+                        new PointF(cx - r3 * 0.10f, hy - r3 * 1.35f)
+                    });
+                    using (SolidBrush capBrush = new SolidBrush(color))
+                        g.FillPath(capBrush, gp);
+                }
+                float brimW = r3 * 2.25f;
+                float brimH = Math.Max(3.8f, 4.6f * s);
+                g.FillEllipse(WhiteBrush, cx - brimW * 0.5f, hy - brimH * 0.5f, brimW, brimH);
+                g.DrawEllipse(OutlinePen, cx - brimW * 0.5f, hy - brimH * 0.5f, brimW, brimH);
+
+                float pomR = Math.Max(3.2f, 3.8f * s);
+                float pomX = cx + r3 * 1.20f;
+                float pomY = hy - r3 * 0.95f;
+                g.FillEllipse(WhiteBrush, pomX - pomR, pomY - pomR, pomR * 2f, pomR * 2f);
+                g.DrawEllipse(OutlinePen, pomX - pomR, pomY - pomR, pomR * 2f, pomR * 2f);
+            }
+            else if (style == 3)
+            {
+                // 3: Mücevherli Altın Taç
+                Color crownColor = Color.FromArgb(252, 250, 204, 21);
+                PointF[] pts = new PointF[] {
+                    new PointF(cx - r3 * 0.92f, hy + 0.5f * s),
+                    new PointF(cx - r3 * 1.05f, hy - 7.5f * s),
+                    new PointF(cx - r3 * 0.42f, hy - 3.6f * s),
+                    new PointF(cx, hy - 9.2f * s),
+                    new PointF(cx + r3 * 0.42f, hy - 3.6f * s),
+                    new PointF(cx + r3 * 1.05f, hy - 7.5f * s),
+                    new PointF(cx + r3 * 0.92f, hy + 0.5f * s)
+                };
+                using (SolidBrush cb = new SolidBrush(crownColor))
+                using (Pen cp = new Pen(Color.FromArgb(240, 202, 138, 4), Math.Max(1.2f, 1.3f * s)))
+                using (SolidBrush gem = new SolidBrush(color))
+                {
+                    g.FillPolygon(cb, pts);
+                    g.DrawPolygon(cp, pts);
+                    float jr = Math.Max(1.8f, 2.0f * s);
+                    g.FillEllipse(gem, cx - jr, hy - 3.6f * s, jr * 2f, jr * 2f);
+                }
+            }
+            else if (style == 4)
+            {
+                // 4: Kulaklıklı Kış Şapkası (Ushanka)
+                using (SolidBrush hatBrush = new SolidBrush(color))
+                {
+                    float domeW = r3 * 2.05f;
+                    float domeH = r3 * 1.55f;
+                    g.FillPie(hatBrush, cx - domeW * 0.5f, hy - domeH * 0.72f, domeW, domeH * 1.35f, 180, 180);
+                    // Yan kulaklıklar
+                    g.FillEllipse(hatBrush, cx - r3 * 1.25f, hy - 1.2f * s, 4.4f * s, 7.8f * s);
+                    g.FillEllipse(hatBrush, cx + r3 * 1.25f - 4.4f * s, hy - 1.2f * s, 4.4f * s, 7.8f * s);
+                }
+                // Ön kalın beyaz kürk şeridi
+                RectangleF furFront = new RectangleF(cx - r3 * 0.92f, hy - 4.5f * s, r3 * 1.84f, 4.8f * s);
+                using (GraphicsPath fp = GraphicsExt.CreateRoundedRect(furFront, 2.0f * s))
+                {
+                    g.FillPath(WhiteBrush, fp);
+                    g.DrawPath(OutlinePen, fp);
+                }
+            }
+            else
+            {
+                // 5: Yıldızlı Büyücü Şapkası
+                using (SolidBrush wizBrush = new SolidBrush(color))
+                using (Pen brimPen = new Pen(color, Math.Max(2.6f, 3.2f * s)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                using (SolidBrush starBrush = new SolidBrush(Color.FromArgb(250, 253, 224, 71)))
+                {
+                    g.DrawLine(brimPen, cx - r3 * 1.45f, hy + 0.4f * s, cx + r3 * 1.45f, hy + 0.4f * s);
+                    PointF[] cone = new PointF[] {
+                        new PointF(cx - r3 * 0.88f, hy),
+                        new PointF(cx + r3 * 0.88f, hy),
+                        new PointF(cx + r3 * 0.25f, hy - 13.8f * s)
+                    };
+                    g.FillPolygon(wizBrush, cone);
+                    // Altın kuşak & yıldızlar
+                    g.FillRectangle(starBrush, cx - r3 * 0.84f, hy - 2.3f * s, r3 * 1.68f, 1.8f * s);
+                    g.FillEllipse(starBrush, cx - 1.5f * s, hy - 6.8f * s, 2.6f * s, 2.6f * s);
+                    g.FillEllipse(starBrush, cx + 1.4f * s, hy - 9.8f * s, 2.0f * s, 2.0f * s);
+                }
+            }
         }
     }
 
@@ -804,6 +1613,8 @@ namespace SnowyWindows
         public bool FairyLightsEnabled { get; set; }
         public bool IciclesEnabled { get; set; }
         public bool CableCarEnabled { get; set; }
+        public bool SantaEnabled { get; set; }
+        public bool AuroraEnabled { get; set; }
         public bool BlizzardMode { get; set; }
         public bool MultiMonitorEnabled { get; private set; }
         public int ActiveMonitorCount { get { return _activeMonitorCount; } }
@@ -814,6 +1625,7 @@ namespace SnowyWindows
         public float WindNy { get; set; }
         public float WindowInteriorSnowOpacity { get; set; } // 0.0f .. 1.0f (Uygulamaların içine yağarken şeffaflık)
         public IntPtr ControlPanelHwnd { get; set; }
+        public IntPtr WardrobeHwnd { get; set; }
         public bool Paused { get; private set; }
         public float GustAmount { get; set; }          // 0..1 doğal rüzgar hamlesi şiddeti
         public float MeltRate { get; set; }            // Karelik erime oranı (0 = erimez)
@@ -841,9 +1653,39 @@ namespace SnowyWindows
         private readonly List<SnowmanEntity> _snowmen = new List<SnowmanEntity>();
         private readonly List<SnowPlowEntity> _plows = new List<SnowPlowEntity>();
         private readonly List<CampfireEntity> _campfires = new List<CampfireEntity>();
+        private readonly List<GiftBoxEntity> _gifts = new List<GiftBoxEntity>();
         private readonly FloatingPopup[] _popups = new FloatingPopup[24];
         private CampfireEntity _draggedCampfire;
         private Point _lastCursorPos;
+
+        // Noel Baba ve Ren Geyikleri (Arka Plan Rastgele Uçuş Sistemi)
+        private bool _santaActive;
+        private int _santaCooldownTicks;
+        private float _santaX;
+        private float _santaY;
+        private float _santaBaseY;
+        private float _santaPrevY;
+        private float _santaSpeed;
+        private float _santaScale;
+        private int _santaDir = 1;
+        private float _santaWavePhase;
+        private float _santaGallopPhase;
+        private float _santaGiftDropX1;
+        private float _santaGiftDropX2;
+        private bool _santaDroppedGift1;
+        private bool _santaDroppedGift2;
+        private int _santaHitCooldown;
+        private readonly SantaSparkle[] _santaSparkles = new SantaSparkle[120];
+
+        // Sürpriz Sistemi: Kuzey Işıkları (Aurora Borealis), Kayan Yıldızlar & Havai Fişek Gösterisi
+        private float _auroraSurge;
+        private int _shootingStarCooldown;
+        private readonly ShootingStar[] _shootingStars = new ShootingStar[4];
+        private readonly FireworkRocket[] _rockets = new FireworkRocket[16];
+        private readonly FireworkSpark[] _sparks = new FireworkSpark[420];
+        private int _fireworkShowRemaining;
+        private int _fireworkShowTimer;
+        private SnowmanWardrobeForm _wardrobeForm;
 
         // İki uygulama arası Teleferik (Cable Car / Ski Gondola) durumu
         private float _cableCarT = 0.25f;          // 0.0 (İstasyon A) .. 1.0 (İstasyon B)
@@ -870,6 +1712,7 @@ namespace SnowyWindows
         private IntPtr _hookSystem = IntPtr.Zero;
         private IntPtr _hookObject = IntPtr.Zero;
         private NativeMethods.WinEventDelegate _winEventProc; // GC tarafından toplanmaması için referans tutulur
+        private bool _f6WasDown;
         private bool _f7WasDown;
         private bool _f8WasDown;
         private bool _f9WasDown;
@@ -918,6 +1761,8 @@ namespace SnowyWindows
             FairyLightsEnabled = true;
             IciclesEnabled = true;
             CableCarEnabled = true;
+            SantaEnabled = true;
+            AuroraEnabled = true;
             BlizzardMode = false;
             ActiveSnowCount = 420;
             MaxPileHeight = 34f;
@@ -927,6 +1772,10 @@ namespace SnowyWindows
             GustAmount = 0.25f;
             MeltRate = 0f;
             AutoPauseOnFullscreen = true;
+
+            // İlk Noel Baba geçişi 12..28 sn sonra, ilk kayan yıldız 8..20 sn sonra
+            _santaCooldownTicks = 60 * (12 + _rng.Next(16));
+            _shootingStarCooldown = 60 * (8 + _rng.Next(12));
 
             for (int i = 0; i < 256; i++)
             {
@@ -995,7 +1844,7 @@ namespace SnowyWindows
         {
             if (idObject != NativeMethods.OBJID_WINDOW || hwnd == IntPtr.Zero)
                 return;
-            if (hwnd == Handle || hwnd == ControlPanelHwnd)
+            if (hwnd == Handle || hwnd == ControlPanelHwnd || (WardrobeHwnd != IntPtr.Zero && hwnd == WardrobeHwnd))
                 return;
 
             if (eventType == NativeMethods.EVENT_SYSTEM_FOREGROUND ||
@@ -1312,8 +2161,295 @@ namespace SnowyWindows
             _snowballs.Clear();
             _snowmen.Clear();
             _campfires.Clear();
+            _gifts.Clear();
+            CloseWardrobeIfOpen();
             for (int i = 0; i < _plows.Count; i++)
                 ShedPlowMound(_plows[i], 1f);
+        }
+
+        public void SpawnDressedSnowmanOnActiveWindow(bool vipRandom)
+        {
+            WindowSurface target = null;
+            for (int i = 0; i < _orderedSurfaces.Count; i++)
+            {
+                WindowSurface cand = _orderedSurfaces[i];
+                if (!cand.IsTaskbar && !cand.IsMaximized && !IsOccludedByFrontWindow(cand.Left + cand.Width * 0.5f, cand.Top, cand.ZOrder))
+                {
+                    target = cand;
+                    break;
+                }
+            }
+            if (target == null && _orderedSurfaces.Count > 0)
+                target = _orderedSurfaces[_orderedSurfaces.Count - 1];
+
+            if (target != null)
+            {
+                float x = target.Left + 70f + (float)_rng.NextDouble() * Math.Max(30f, target.Width - 140f);
+                SnowmanEntity sm = new SnowmanEntity(x, target.Top, 17f, 13f, 9.5f, target.Hwnd, _rng);
+                if (vipRandom)
+                    sm.RandomizeOutfit(_rng);
+                sm.TiltVel = 5.5f;
+                _snowmen.Add(sm);
+                BurstSnowSparkles(x, target.Top - 36f, 28);
+                SpawnPopupText(
+                    x, target.Top - 78f,
+                    IsEnglish ? "⛄ Right-click (F8) to dress!" : "⛄ Giydirmek için sağ tık (F8)!",
+                    Color.FromArgb(255, 125, 211, 252));
+            }
+        }
+
+        public void SummonSantaSoon()
+        {
+            if (!_santaActive && SantaEnabled)
+            {
+                _santaCooldownTicks = Math.Min(_santaCooldownTicks, 60 * 3); // 3 saniye içinde gelir!
+            }
+        }
+
+        public void TriggerSurpriseShow()
+        {
+            // 1. Kuzey Işıkları parlar
+            _auroraSurge = 1.0f;
+
+            // 2. Koreografili 7'li Kış Havai Fişek Gösterisi başlat
+            _fireworkShowRemaining = 7;
+            _fireworkShowTimer = 1;
+
+            // 3. Eğer Noel Baba henüz uçmuyorsa ve açıksa hemen yola çıkar!
+            if (SantaEnabled && !_santaActive)
+                StartSantaSleighPass();
+
+            // 4. Sahnede kardan adamlar varsa sevinçle zıplar!
+            for (int i = 0; i < _snowmen.Count; i++)
+            {
+                SnowmanEntity sm = _snowmen[i];
+                sm.Vy = -5.5f - (float)_rng.NextDouble() * 2.5f;
+                sm.SurfaceHwnd = IntPtr.Zero;
+                sm.TiltVel += ((i % 2 == 0) ? 10f : -10f);
+            }
+
+            SpawnPopupText(
+                _screenW * 0.5f, _screenH * 0.24f,
+                IsEnglish ? "✨ WINTER MAGIC SHOW! ✨" : "✨ KIŞ SÜRPRİZİ! ✨",
+                Color.FromArgb(255, 253, 224, 71));
+        }
+
+        public void LaunchFireworkAt(float targetX, float targetY)
+        {
+            Color[][] palettes = new Color[][]
+            {
+                new Color[] { Color.FromArgb(255, 56, 189, 248), Color.FromArgb(255, 224, 242, 254) },  // Buz Mavisi
+                new Color[] { Color.FromArgb(255, 250, 204, 21), Color.FromArgb(255, 251, 146, 60) },   // Altın & Kehribar
+                new Color[] { Color.FromArgb(255, 244, 114, 182), Color.FromArgb(255, 192, 132, 252) }, // Pembe & Mor
+                new Color[] { Color.FromArgb(255, 52, 211, 153), Color.FromArgb(255, 167, 243, 208) },  // Zümrüt Aurora
+                new Color[] { Color.FromArgb(255, 248, 113, 113), Color.FromArgb(255, 253, 224, 71) }   // Noel Kırmızısı & Altın
+            };
+            Color[] pal = palettes[_rng.Next(palettes.Length)];
+
+            for (int i = 0; i < _rockets.Length; i++)
+            {
+                if (!_rockets[i].Active)
+                {
+                    float startX = targetX + (float)(_rng.NextDouble() * 90.0 - 45.0);
+                    float startY = _screenH - 20f;
+                    float distY = Math.Max(120f, startY - targetY);
+                    float frames = Math.Max(22f, Math.Min(46f, distY / 13.5f));
+                    _rockets[i].X = startX;
+                    _rockets[i].Y = startY;
+                    _rockets[i].Vx = (targetX - startX) / frames;
+                    _rockets[i].Vy = -(distY / frames);
+                    _rockets[i].TargetY = Math.Max(60f, Math.Min(_screenH * 0.65f, targetY));
+                    _rockets[i].PrimaryColor = pal[0];
+                    _rockets[i].SecondaryColor = pal[1];
+                    _rockets[i].Pattern = _rng.Next(3);
+                    _rockets[i].Active = true;
+                    return;
+                }
+            }
+        }
+
+        private void ExplodeFirework(float x, float y, Color c1, Color c2, int pattern)
+        {
+            int count = (pattern == 1) ? 46 : 38;
+            for (int k = 0; k < count; k++)
+            {
+                double ang = (Math.PI * 2.0 * k) / count + (_rng.NextDouble() * 0.16 - 0.08);
+                float spd;
+                Color col;
+                if (pattern == 1)
+                {
+                    bool inner = (k % 2 == 0);
+                    spd = inner ? (2.6f + (float)_rng.NextDouble() * 1.1f) : (5.0f + (float)_rng.NextDouble() * 1.6f);
+                    col = inner ? c2 : c1;
+                }
+                else if (pattern == 2)
+                {
+                    spd = 2.2f + (float)_rng.NextDouble() * 4.4f;
+                    col = (k % 3 == 0) ? Color.FromArgb(255, 254, 240, 138) : c1;
+                }
+                else
+                {
+                    spd = 2.4f + (float)_rng.NextDouble() * 4.5f;
+                    col = (k % 2 == 0) ? c1 : c2;
+                }
+
+                SpawnFireworkSpark(
+                    x, y,
+                    (float)Math.Cos(ang) * spd,
+                    (float)Math.Sin(ang) * spd,
+                    (pattern == 2) ? 0.962f : 0.945f,
+                    (pattern == 2) ? 0.11f : 0.075f,
+                    2.4f + (float)_rng.NextDouble() * 2.2f,
+                    col,
+                    42 + _rng.Next(26),
+                    (k % 3 == 0));
+            }
+            _auroraSurge = Math.Min(1.0f, _auroraSurge + 0.25f);
+        }
+
+        private void SpawnFireworkSpark(
+            float x, float y, float vx, float vy,
+            float drag, float grav, float size, Color color, int ttl, bool twinkle)
+        {
+            for (int i = 0; i < _sparks.Length; i++)
+            {
+                if (!_sparks[i].Active)
+                {
+                    _sparks[i].X = x;
+                    _sparks[i].Y = y;
+                    _sparks[i].PrevX = x;
+                    _sparks[i].PrevY = y;
+                    _sparks[i].Vx = vx;
+                    _sparks[i].Vy = vy;
+                    _sparks[i].Drag = drag;
+                    _sparks[i].Gravity = grav;
+                    _sparks[i].Size = size;
+                    _sparks[i].Color = color;
+                    _sparks[i].Ttl = ttl;
+                    _sparks[i].MaxTtl = ttl;
+                    _sparks[i].Twinkle = twinkle;
+                    _sparks[i].Active = true;
+                    return;
+                }
+            }
+        }
+
+        private void OpenGiftBox(GiftBoxEntity gift)
+        {
+            float gx = gift.X;
+            float gy = gift.Y - gift.Size * 0.5f;
+            _gifts.Remove(gift);
+
+            ExplodeFirework(gx, gy - 12f, gift.BoxColor, gift.RibbonColor, 1);
+            BurstSnowSparkles(gx, gy, 24);
+
+            int roll = _rng.Next(3);
+            if (roll == 0 || _snowmen.Count == 0)
+            {
+                // Sürpriz 1: Şık giyinmiş VIP Kardan Adam fırlar!
+                SnowmanEntity vip = new SnowmanEntity(gx, gift.Y, 16.5f, 12.5f, 9.2f, gift.SurfaceHwnd, _rng);
+                vip.ApplyPreset(_rng.Next(4));
+                vip.Vy = -4.2f;
+                vip.TiltVel = 9f;
+                _snowmen.Add(vip);
+                SpawnPopupText(gx, gy - 26f, IsEnglish ? "🎁 VIP SNOWMAN!" : "🎁 SÜRPRİZ KARDAN ADAM!", Color.FromArgb(255, 253, 224, 71));
+            }
+            else if (roll == 1)
+            {
+                // Sürpriz 2: Mini Havai Fişek Kutlaması!
+                _fireworkShowRemaining = Math.Max(_fireworkShowRemaining, 4);
+                _fireworkShowTimer = 1;
+                _auroraSurge = 0.85f;
+                SpawnPopupText(gx, gy - 26f, IsEnglish ? "🎆 HAPPY WINTER!" : "🎆 MUTLU KIŞLAR!", Color.FromArgb(255, 56, 189, 248));
+            }
+            else
+            {
+                // Sürpriz 3: Kardan adamlar dans eder & altın yıldız yağmuru!
+                for (int i = 0; i < _snowmen.Count; i++)
+                {
+                    _snowmen[i].Vy = -6.0f;
+                    _snowmen[i].SurfaceHwnd = IntPtr.Zero;
+                    _snowmen[i].TiltVel += 12f;
+                }
+                for (int k = 0; k < 22; k++)
+                {
+                    SpawnSantaSparkle(
+                        gx + (float)(_rng.NextDouble() * 40.0 - 20.0),
+                        gy + (float)(_rng.NextDouble() * 20.0 - 10.0),
+                        (float)(_rng.NextDouble() * 5.0 - 2.5),
+                        -2.0f - (float)_rng.NextDouble() * 3.5f);
+                }
+                SpawnPopupText(gx, gy - 26f, IsEnglish ? "✨ GOLDEN MAGIC!" : "✨ ALTIN SİHİR!", Color.FromArgb(255, 250, 204, 21));
+            }
+        }
+
+        public void OpenSnowmanWardrobe(SnowmanEntity sm)
+        {
+            if (sm == null) return;
+            if (_wardrobeForm == null || _wardrobeForm.IsDisposed)
+            {
+                _wardrobeForm = new SnowmanWardrobeForm(this, sm);
+                _wardrobeForm.FormClosed += (s, e) =>
+                {
+                    WardrobeHwnd = IntPtr.Zero;
+                    _wardrobeForm = null;
+                };
+                _wardrobeForm.Show();
+                WardrobeHwnd = _wardrobeForm.Handle;
+            }
+            else
+            {
+                _wardrobeForm.SetTargetSnowman(sm);
+                if (!_wardrobeForm.Visible) _wardrobeForm.Show();
+                _wardrobeForm.Activate();
+                WardrobeHwnd = _wardrobeForm.Handle;
+            }
+
+            // Gardırop penceresini tıklanan kardan adamın hemen yanına zarifçe yerleştir
+            int screenSmX = _originX + (int)sm.X;
+            int screenSmY = _originY + (int)(sm.Y - sm.R1 * 2f);
+            Screen scr = Screen.FromPoint(new Point(screenSmX, screenSmY));
+            Rectangle wa = scr.WorkingArea;
+
+            int wx = screenSmX + (int)(sm.R1 * 2.2f) + 20;
+            if (wx + _wardrobeForm.Width > wa.Right - 12)
+                wx = screenSmX - _wardrobeForm.Width - (int)(sm.R1 * 2.2f) - 20;
+            wx = Math.Max(wa.Left + 12, Math.Min(wa.Right - _wardrobeForm.Width - 12, wx));
+
+            int wy = screenSmY - _wardrobeForm.Height / 2;
+            wy = Math.Max(wa.Top + 12, Math.Min(wa.Bottom - _wardrobeForm.Height - 12, wy));
+
+            _wardrobeForm.Location = new Point(wx, wy);
+            _wardrobeForm.BringToFront();
+        }
+
+        public void DeleteSnowman(SnowmanEntity sm)
+        {
+            if (sm == null) return;
+            int idx = _snowmen.IndexOf(sm);
+            if (idx >= 0)
+            {
+                BurstSnowSparkles(sm.X, sm.Y - 20f, 30);
+                _snowmen.RemoveAt(idx);
+            }
+            if (_wardrobeForm != null && !_wardrobeForm.IsDisposed && _wardrobeForm.TargetSnowman == sm)
+                CloseWardrobeIfOpen();
+        }
+
+        private void CloseWardrobeIfOpen()
+        {
+            if (_wardrobeForm != null && !_wardrobeForm.IsDisposed)
+            {
+                _wardrobeForm.Close();
+            }
+            WardrobeHwnd = IntPtr.Zero;
+            _wardrobeForm = null;
+        }
+
+        public void RefreshWardrobeLanguage()
+        {
+            if (_wardrobeForm != null && !_wardrobeForm.IsDisposed)
+                _wardrobeForm.ApplyLanguage();
         }
 
         public void SpawnCampfire()
@@ -1590,11 +2726,12 @@ namespace SnowyWindows
             List<WindowSurface> detected = new List<WindowSurface>();
             IntPtr myHwnd = Handle;
             IntPtr panelHwnd = ControlPanelHwnd;
+            IntPtr wardrobeHwnd = WardrobeHwnd;
             int zCounter = 0;
 
             NativeMethods.EnumWindows((hWnd, lParam) =>
             {
-                if (hWnd == myHwnd || hWnd == panelHwnd) return true;
+                if (hWnd == myHwnd || hWnd == panelHwnd || (wardrobeHwnd != IntPtr.Zero && hWnd == wardrobeHwnd)) return true;
                 if (!NativeMethods.IsWindowVisible(hWnd) || NativeMethods.IsIconic(hWnd)) return true;
 
                 int cloaked = 0;
@@ -1959,16 +3096,31 @@ namespace SnowyWindows
             for (int i = 0; i < _mouseHistory.Length; i++)
                 _mouseHistory[i] = new PointF(e.X, e.Y);
 
-            // Sağ tık: Tıklanan kardan adamı veya kartopunu kar parçacıklarına patlatarak sil
+            // Orta tık: İmleç noktasına sürpriz havai fişek fırlat!
+            if (e.Button == MouseButtons.Middle)
+            {
+                LaunchFireworkAt(e.X, e.Y);
+                return;
+            }
+
+            // Sağ tık: Kardan adama sağ tık -> Modern Gardırop Penceresi aç! Diğer nesneleri sil / hediye aç
             if (e.Button == MouseButtons.Right)
             {
                 for (int i = _snowmen.Count - 1; i >= 0; i--)
                 {
                     SnowmanEntity sm = _snowmen[i];
-                    if (Math.Abs(e.X - sm.X) <= sm.R1 * 1.5f && e.Y <= sm.Y + 8f && e.Y >= sm.Y - (sm.R1 + sm.R2 + sm.R3) * 2f)
+                    if (Math.Abs(e.X - sm.X) <= sm.R1 * 1.75f && e.Y <= sm.Y + 10f && e.Y >= sm.Y - (sm.R1 + sm.R2 + sm.R3) * 2.25f)
                     {
-                        BurstSnowSparkles(sm.X, sm.Y - 20f, 30);
-                        _snowmen.RemoveAt(i);
+                        OpenSnowmanWardrobe(sm);
+                        return;
+                    }
+                }
+                for (int i = _gifts.Count - 1; i >= 0; i--)
+                {
+                    GiftBoxEntity g = _gifts[i];
+                    if (Math.Abs(e.X - g.X) <= g.Size * 1.2f && Math.Abs(e.Y - (g.Y - g.Size * 0.5f)) <= g.Size * 1.4f)
+                    {
+                        OpenGiftBox(g);
                         return;
                     }
                 }
@@ -1996,6 +3148,17 @@ namespace SnowyWindows
             }
 
             if (e.Button != MouseButtons.Left) return;
+
+            // -1. Öncelik: Noel Baba'nın bıraktığı Hediye Paketine sol tıklayınca patlatarak aç!
+            for (int i = _gifts.Count - 1; i >= 0; i--)
+            {
+                GiftBoxEntity g = _gifts[i];
+                if (Math.Abs(e.X - g.X) <= g.Size * 1.2f && Math.Abs(e.Y - (g.Y - g.Size * 0.5f)) <= g.Size * 1.4f)
+                {
+                    OpenGiftBox(g);
+                    return;
+                }
+            }
 
             // 0. Öncelik: Kamp ateşini (Campfire) tut ve taşı
             for (int i = _campfires.Count - 1; i >= 0; i--)
@@ -2769,6 +3932,11 @@ namespace SnowyWindows
             if (f7Down && !_f7WasDown)
                 TogglePause();
             _f7WasDown = f7Down;
+
+            bool f6Down = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_F6) & 0x8000) != 0;
+            if (f6Down && !_f6WasDown)
+                TriggerSurpriseShow();
+            _f6WasDown = f6Down;
         }
 
         private void UpdatePhysics()
@@ -3430,6 +4598,360 @@ namespace SnowyWindows
 
             UpdateCampfiresAndPopups(windVx);
             UpdateCableCarPhysics(windVx);
+            UpdateAuroraAndShootingStars();
+            UpdateSantaSleighPhysics(windVx);
+            UpdateGiftsPhysics(windVx);
+            UpdateFireworksPhysics(windVx);
+
+            // Gardırop penceresi açıkken hedef kardan adam silindiyse pencereyi kapat
+            if (_wardrobeForm != null && !_wardrobeForm.IsDisposed &&
+                _wardrobeForm.TargetSnowman != null && !_snowmen.Contains(_wardrobeForm.TargetSnowman))
+            {
+                CloseWardrobeIfOpen();
+            }
+        }
+
+        private void UpdateAuroraAndShootingStars()
+        {
+            if (_auroraSurge > 0f)
+                _auroraSurge = Math.Max(0f, _auroraSurge - 0.0045f);
+
+            // Kayan yıldızlar (Kuzey ışıkları açıkken rastgele 15..36 sn aralıkla)
+            if (AuroraEnabled && !PerformanceMode)
+            {
+                _shootingStarCooldown--;
+                if (_shootingStarCooldown <= 0)
+                {
+                    _shootingStarCooldown = 60 * (15 + _rng.Next(22));
+                    for (int i = 0; i < _shootingStars.Length; i++)
+                    {
+                        if (!_shootingStars[i].Active)
+                        {
+                            bool leftToRight = _rng.NextDouble() < 0.65;
+                            float dir = leftToRight ? 1f : -1f;
+                            float spd = 12f + (float)_rng.NextDouble() * 7f;
+                            _shootingStars[i].X = leftToRight
+                                ? (float)(_screenW * (0.08 + _rng.NextDouble() * 0.45))
+                                : (float)(_screenW * (0.48 + _rng.NextDouble() * 0.44));
+                            _shootingStars[i].Y = (float)(_screenH * (0.04 + _rng.NextDouble() * 0.16));
+                            _shootingStars[i].Vx = dir * spd;
+                            _shootingStars[i].Vy = 2.6f + (float)_rng.NextDouble() * 2.4f;
+                            _shootingStars[i].TailLen = 68f + (float)_rng.NextDouble() * 55f;
+                            _shootingStars[i].Ttl = 34 + _rng.Next(20);
+                            _shootingStars[i].MaxTtl = _shootingStars[i].Ttl;
+                            _shootingStars[i].Color = (_rng.NextDouble() < 0.5)
+                                ? Color.FromArgb(255, 186, 230, 253)
+                                : Color.FromArgb(255, 254, 249, 195);
+                            _shootingStars[i].Active = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            for (int i = 0; i < _shootingStars.Length; i++)
+            {
+                if (!_shootingStars[i].Active) continue;
+                _shootingStars[i].X += _shootingStars[i].Vx;
+                _shootingStars[i].Y += _shootingStars[i].Vy;
+                _shootingStars[i].Ttl--;
+                if (_shootingStars[i].Ttl <= 0 || _shootingStars[i].X < -180f || _shootingStars[i].X > _screenW + 180f)
+                    _shootingStars[i].Active = false;
+            }
+        }
+
+        private void StartSantaSleighPass()
+        {
+            _santaActive = true;
+            _santaDir = (_rng.NextDouble() < 0.5) ? 1 : -1;
+            _santaScale = 0.80f + (float)_rng.NextDouble() * 0.28f; // Uzaklık derinliği hissi
+            _santaSpeed = (2.45f + (float)_rng.NextDouble() * 1.15f) * (0.85f + _santaScale * 0.25f);
+            _santaX = (_santaDir > 0) ? -210f : (_screenW + 210f);
+            _santaBaseY = _screenH * (0.10f + (float)_rng.NextDouble() * 0.18f);
+            _santaY = _santaBaseY;
+            _santaPrevY = _santaBaseY;
+            _santaWavePhase = (float)(_rng.NextDouble() * Math.PI * 2.0);
+            _santaGallopPhase = 0f;
+            _santaHitCooldown = 0;
+
+            // Geçiş sırasında rastgele 1-2 paraşütlü hediye bırakma noktası
+            _santaGiftDropX1 = _screenW * (0.20f + (float)_rng.NextDouble() * 0.28f);
+            _santaGiftDropX2 = _screenW * (0.54f + (float)_rng.NextDouble() * 0.28f);
+            _santaDroppedGift1 = false;
+            _santaDroppedGift2 = (_rng.NextDouble() < 0.45); // %55 ihtimalle 2 hediye, %45 ihtimalle 1 hediye
+        }
+
+        private void SpawnSantaSparkle(float x, float y, float vx, float vy)
+        {
+            for (int i = 0; i < _santaSparkles.Length; i++)
+            {
+                if (!_santaSparkles[i].Active)
+                {
+                    _santaSparkles[i].X = x;
+                    _santaSparkles[i].Y = y;
+                    _santaSparkles[i].Vx = vx;
+                    _santaSparkles[i].Vy = vy;
+                    _santaSparkles[i].Size = 2.6f + (float)_rng.NextDouble() * 3.0f;
+                    double r = _rng.NextDouble();
+                    _santaSparkles[i].Color = (r < 0.55)
+                        ? Color.FromArgb(255, 253, 224, 71)   // Altın
+                        : (r < 0.82 ? Color.FromArgb(255, 255, 255, 255) : Color.FromArgb(255, 125, 211, 252)); // Beyaz / Buz
+                    _santaSparkles[i].Ttl = 30 + _rng.Next(26);
+                    _santaSparkles[i].MaxTtl = _santaSparkles[i].Ttl;
+                    _santaSparkles[i].Active = true;
+                    return;
+                }
+            }
+        }
+
+        private void UpdateSantaSleighPhysics(float windVx)
+        {
+            // Yıldız tozu izini her zaman güncelle
+            for (int i = 0; i < _santaSparkles.Length; i++)
+            {
+                if (!_santaSparkles[i].Active) continue;
+                _santaSparkles[i].X += _santaSparkles[i].Vx + windVx * 0.04f;
+                _santaSparkles[i].Y += _santaSparkles[i].Vy;
+                _santaSparkles[i].Vy += 0.025f;
+                _santaSparkles[i].Vx *= 0.97f;
+                _santaSparkles[i].Ttl--;
+                if (_santaSparkles[i].Ttl <= 0)
+                    _santaSparkles[i].Active = false;
+            }
+
+            if (_santaHitCooldown > 0) _santaHitCooldown--;
+
+            if (!_santaActive)
+            {
+                if (!SantaEnabled) return;
+                _santaCooldownTicks--;
+                if (_santaCooldownTicks <= 0)
+                {
+                    StartSantaSleighPass();
+                }
+                return;
+            }
+
+            // Aktif uçuş hareketi
+            _santaPrevY = _santaY;
+            _santaX += _santaDir * _santaSpeed;
+            _santaWavePhase += 0.036f;
+            _santaGallopPhase += 0.24f;
+            _santaY = _santaBaseY + (float)Math.Sin(_santaWavePhase) * 24f * _santaScale;
+
+            // Kızak arkasından sihirli altın yıldız tozu dök
+            if (!PerformanceMode && (_frameCount % 2 == 0))
+            {
+                float tailX = _santaX - _santaDir * 68f * _santaScale;
+                float tailY = _santaY + 8f * _santaScale + (float)(_rng.NextDouble() * 14.0 - 7.0);
+                SpawnSantaSparkle(
+                    tailX, tailY,
+                    -_santaDir * (0.4f + (float)_rng.NextDouble() * 0.8f),
+                    0.2f + (float)_rng.NextDouble() * 0.6f);
+            }
+
+            // Rastgele noktalarda paraşütlü sürpriz hediye bırak (sahnede en fazla 4 hediye olsun)
+            if (_gifts.Count < 4)
+            {
+                float sleighWorldX = _santaX - _santaDir * 48f * _santaScale;
+                if (!_santaDroppedGift1 &&
+                    ((_santaDir > 0 && sleighWorldX >= _santaGiftDropX1) ||
+                     (_santaDir < 0 && sleighWorldX <= _santaGiftDropX1)))
+                {
+                    _santaDroppedGift1 = true;
+                    _gifts.Add(new GiftBoxEntity(sleighWorldX, _santaY + 14f * _santaScale, _rng));
+                    SpawnPopupText(sleighWorldX, _santaY - 26f * _santaScale, "🎅 HO HO HO!", Color.FromArgb(255, 253, 224, 71));
+                }
+                else if (!_santaDroppedGift2 &&
+                    ((_santaDir > 0 && sleighWorldX >= _santaGiftDropX2) ||
+                     (_santaDir < 0 && sleighWorldX <= _santaGiftDropX2)))
+                {
+                    _santaDroppedGift2 = true;
+                    _gifts.Add(new GiftBoxEntity(sleighWorldX, _santaY + 14f * _santaScale, _rng));
+                }
+            }
+
+            // Etkileşim sürprizi: Atılan kartopu Noel Baba'nın kızağına çarparsa kahkaha atıp ekstra hediye bırakır!
+            if (_santaHitCooldown == 0)
+            {
+                for (int i = _snowballs.Count - 1; i >= 0; i--)
+                {
+                    SnowballEntity sb = _snowballs[i];
+                    if (sb.Dragging) continue;
+                    float spd = (float)Math.Sqrt(sb.Vx * sb.Vx + sb.Vy * sb.Vy);
+                    if (spd > 3.5f &&
+                        Math.Abs(sb.X - _santaX) <= 105f * _santaScale &&
+                        Math.Abs((sb.Y - sb.BaseRadius) - _santaY) <= 32f * _santaScale)
+                    {
+                        _santaHitCooldown = 45;
+                        _snowballs.RemoveAt(i);
+                        BurstSnowSparkles(_santaX, _santaY, 26);
+                        SpawnPopupText(_santaX, _santaY - 32f, "🎅 HO HO HO! 🎁", Color.FromArgb(255, 253, 224, 71));
+                        if (_gifts.Count < 5)
+                            _gifts.Add(new GiftBoxEntity(_santaX, _santaY + 12f, _rng));
+                        break;
+                    }
+                }
+            }
+
+            // Ekrandan tamamen çıkınca bir sonraki rastgele süre için bekleme sayacını kur (45..135 sn)
+            if ((_santaDir > 0 && _santaX > _screenW + 250f) ||
+                (_santaDir < 0 && _santaX < -250f))
+            {
+                _santaActive = false;
+                _santaCooldownTicks = 60 * (45 + _rng.Next(91));
+            }
+        }
+
+        private void UpdateGiftsPhysics(float windVx)
+        {
+            for (int i = _gifts.Count - 1; i >= 0; i--)
+            {
+                GiftBoxEntity g = _gifts[i];
+                g.LifeTicks--;
+                g.PulsePhase += 0.08f;
+                if (g.LifeTicks <= 0)
+                {
+                    BurstSnowSparkles(g.X, g.Y - g.Size * 0.5f, 10);
+                    _gifts.RemoveAt(i);
+                    continue;
+                }
+
+                // Atılan bir kartopu hediye kutusuna çarparsa kutuyu patlatarak aç!
+                bool openedByBall = false;
+                for (int bIdx = _snowballs.Count - 1; bIdx >= 0; bIdx--)
+                {
+                    SnowballEntity sb = _snowballs[bIdx];
+                    if (sb.Dragging) continue;
+                    float spd = (float)Math.Sqrt(sb.Vx * sb.Vx + sb.Vy * sb.Vy);
+                    if (spd > 2.8f &&
+                        Math.Abs(sb.X - g.X) <= sb.BaseRadius + g.Size * 0.8f &&
+                        Math.Abs((sb.Y - sb.BaseRadius) - (g.Y - g.Size * 0.5f)) <= sb.BaseRadius + g.Size * 0.8f)
+                    {
+                        _snowballs.RemoveAt(bIdx);
+                        OpenGiftBox(g);
+                        openedByBall = true;
+                        break;
+                    }
+                }
+                if (openedByBall) continue;
+
+                WindowSurface attached;
+                if (g.SurfaceHwnd != IntPtr.Zero && _surfaces.TryGetValue(g.SurfaceHwnd, out attached) &&
+                    !attached.IsMaximized && (attached.IsTaskbar || !IsOccludedByFrontWindow(g.X, attached.Top, attached.ZOrder)))
+                {
+                    g.X = Math.Max(attached.Left + 18f, Math.Min(attached.Right - 18f, g.X));
+                    g.Y = attached.Top;
+                    g.HasParachute = false;
+                }
+                else
+                {
+                    g.SurfaceHwnd = IntPtr.Zero;
+                    float prevY = g.Y;
+                    if (g.HasParachute)
+                    {
+                        g.SwayPhase += 0.055f;
+                        g.X += (float)Math.Sin(g.SwayPhase) * 0.95f + windVx * 0.14f;
+                        g.Y += g.Vy;
+                    }
+                    else
+                    {
+                        g.Vy = Math.Min(12f, g.Vy + 0.42f);
+                        g.Y += g.Vy;
+                    }
+                    g.X = Math.Max(28f, Math.Min(_screenW - 28f, g.X));
+
+                    // Açık pencerelerin üstüne veya görev çubuğuna yumuşak iniş
+                    for (int sIdx = 0; sIdx < _orderedSurfaces.Count; sIdx++)
+                    {
+                        WindowSurface s = _orderedSurfaces[sIdx];
+                        if (s.IsMaximized) continue;
+                        if (g.X >= s.Left + 18 && g.X <= s.Right - 18 && prevY <= s.Top + 8f && g.Y >= s.Top)
+                        {
+                            if (s.IsTaskbar || !IsOccludedByFrontWindow(g.X, s.Top, s.ZOrder))
+                            {
+                                g.SurfaceHwnd = s.Hwnd;
+                                g.Y = s.Top;
+                                g.Vy = 0f;
+                                g.HasParachute = false;
+                                BurstSnowSparkles(g.X, g.Y - 8f, 10);
+                                break;
+                            }
+                        }
+                    }
+
+                    if (g.SurfaceHwnd == IntPtr.Zero)
+                    {
+                        WindowSurface tb = FindTaskbarAtX(g.X);
+                        if (tb != null && g.Y >= tb.Top)
+                        {
+                            g.SurfaceHwnd = tb.Hwnd;
+                            g.Y = tb.Top;
+                            g.Vy = 0f;
+                            g.HasParachute = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void UpdateFireworksPhysics(float windVx)
+        {
+            // Koreografili sürpriz gösterisi roket fırlatıcı
+            if (_fireworkShowRemaining > 0)
+            {
+                _fireworkShowTimer--;
+                if (_fireworkShowTimer <= 0)
+                {
+                    _fireworkShowRemaining--;
+                    _fireworkShowTimer = 14 + _rng.Next(14);
+                    float tx = _screenW * (0.14f + (float)_rng.NextDouble() * 0.72f);
+                    float ty = _screenH * (0.12f + (float)_rng.NextDouble() * 0.28f);
+                    LaunchFireworkAt(tx, ty);
+                }
+            }
+
+            // Yükselen roketler
+            for (int i = 0; i < _rockets.Length; i++)
+            {
+                if (!_rockets[i].Active) continue;
+                _rockets[i].X += _rockets[i].Vx;
+                _rockets[i].Y += _rockets[i].Vy;
+
+                if (_frameCount % 2 == 0)
+                {
+                    SpawnFireworkSpark(
+                        _rockets[i].X, _rockets[i].Y,
+                        (float)(_rng.NextDouble() * 0.8 - 0.4),
+                        0.8f + (float)_rng.NextDouble() * 0.8f,
+                        0.92f, 0.04f, 2.0f,
+                        Color.FromArgb(255, 254, 240, 138), 14, false);
+                }
+
+                if (_rockets[i].Y <= _rockets[i].TargetY)
+                {
+                    _rockets[i].Active = false;
+                    ExplodeFirework(
+                        _rockets[i].X, _rockets[i].Y,
+                        _rockets[i].PrimaryColor, _rockets[i].SecondaryColor,
+                        _rockets[i].Pattern);
+                }
+            }
+
+            // Patlayan havai fişek kıvılcımları
+            for (int i = 0; i < _sparks.Length; i++)
+            {
+                if (!_sparks[i].Active) continue;
+                _sparks[i].PrevX = _sparks[i].X;
+                _sparks[i].PrevY = _sparks[i].Y;
+                _sparks[i].Vx = _sparks[i].Vx * _sparks[i].Drag + windVx * 0.008f;
+                _sparks[i].Vy = _sparks[i].Vy * _sparks[i].Drag + _sparks[i].Gravity;
+                _sparks[i].X += _sparks[i].Vx;
+                _sparks[i].Y += _sparks[i].Vy;
+                _sparks[i].Ttl--;
+                if (_sparks[i].Ttl <= 0)
+                    _sparks[i].Active = false;
+            }
         }
 
         private bool TryFindCableCarWindows(out WindowSurface leftWin, out WindowSurface rightWin)
@@ -3749,6 +5271,16 @@ namespace SnowyWindows
             Graphics g = _surfaceGraphics;
             g.Clear(Color.Transparent);
 
+            // 0a. Arka Plan Kuzey Işıkları (Aurora Borealis) ve Kayan Yıldızlar
+            if (AuroraEnabled && !PerformanceMode)
+            {
+                DrawAuroraBorealis(g);
+                DrawShootingStars(g);
+            }
+
+            // 0b. Arka Planda Rastgele Geçen Noel Baba ve Ren Geyikleri (🎅🦌)
+            DrawSantaSleighAndTrail(g);
+
             // 1. Pencerelerin Üstündeki Pürüzsüz Spline Kar Yığınları ve Sallanan Kış Işıkları
             //    Önde bulunan pencereler (örn. sonradan açılan Spotify) ExcludeClip ile maskelenir;
             //    böylece arkadaki pencerenin karı veya ışıkları ASLA öndeki pencerenin içinde havada görünmez!
@@ -3852,11 +5384,16 @@ namespace SnowyWindows
             for (int i = 0; i < _campfires.Count; i++)
                 DrawCampfire(g, _campfires[i]);
 
-            // 3. 3 Kartopuyla Oluşturulmuş Kardan Adamlar (⛄)
+            // 2c. Noel Baba'nın Bıraktığı Sürpriz Paraşütlü Hediyeler (🎁)
+            for (int i = 0; i < _gifts.Count; i++)
+                DrawGiftBox(g, _gifts[i]);
+
+            // 3. 3 Kartopuyla Oluşturulmuş / Giydirilmiş Kardan Adamlar (⛄)
             Point rawCur = Cursor.Position;
             _lastCursorPos = new Point(rawCur.X - _originX, rawCur.Y - _originY);
+            SnowmanEntity activeWardrobeTarget = (_wardrobeForm != null && !_wardrobeForm.IsDisposed) ? _wardrobeForm.TargetSnowman : null;
             for (int i = 0; i < _snowmen.Count; i++)
-                DrawSnowman(g, _snowmen[i]);
+                DrawSnowman(g, _snowmen[i], _snowmen[i] == activeWardrobeTarget);
 
             // 3b. Havada Uçan Şapkalar ve Düşen Buz Sarkıtları
             for (int i = 0; i < _flyingHats.Length; i++)
@@ -3873,8 +5410,6 @@ namespace SnowyWindows
             // 4. Sarı Kar Küreme Araçları ve Önündeki Dev Kar Yığını (🚜)
             for (int i = 0; i < _plows.Count; i++)
                 DrawSnowPlowWithFrontSnowMound(g, _plows[i]);
-
-
 
             // 5. Fiziksel Kar Parçaları / Küreme Fıskiyesi
             for (int i = 0; i < MaxChunks; i++)
@@ -3927,7 +5462,10 @@ namespace SnowyWindows
                 g.FillEllipse(_alphaWhiteBrushes[a], f.X - r, f.Y - r, f.Size, f.Size);
             }
 
-            // 6b. Vuruş Efekt Yazıları (🎯 HEADSHOT!, 💥 BOOM!)
+            // 6a. Sürpriz Havai Fişekler (🎆)
+            DrawFireworks(g);
+
+            // 6b. Vuruş & Sürpriz Efekt Yazıları (🎯 HEADSHOT!, 🎅 HO HO HO!)
             for (int i = 0; i < _popups.Length; i++)
             {
                 if (_popups[i].Active)
@@ -3942,18 +5480,408 @@ namespace SnowyWindows
             PresentFrame();
         }
 
+        private void DrawAuroraBorealis(Graphics g)
+        {
+            float baseH = Math.Min(250f, _screenH * 0.25f);
+            float surgeBoost = 1.0f + _auroraSurge * 0.90f;
+            const int segs = 22;
+
+            // 2 katmanlı pürüzsüz, dikişsiz Kuzey Işığı perdesi (Zümrüt-Buz & İndigo-Mor)
+            for (int layer = 0; layer < 2; layer++)
+            {
+                PointF[] topPts = new PointF[segs + 1];
+                PointF[] botPts = new PointF[segs + 1];
+                float phase = (layer == 0) ? _time * 0.34f : (-_time * 0.26f + 1.9f);
+                float freq1 = (layer == 0) ? 4.8f : 6.2f;
+                float freq2 = (layer == 0) ? 10.2f : 8.5f;
+
+                for (int i = 0; i <= segs; i++)
+                {
+                    float t = (float)i / segs;
+                    float x = t * _screenW;
+                    float edge = (float)Math.Sin(t * Math.PI);
+                    float w1 = (float)(Math.Sin(t * freq1 + phase) * 0.55 + Math.Sin(t * freq2 - phase * 0.65) * 0.45);
+                    float w2 = (float)(Math.Cos(t * (freq1 + 1.4f) - phase * 0.8) * 0.5 + 0.5);
+
+                    float ty = Math.Max(0f, (layer == 0 ? 4f : 16f) + w1 * 18f);
+                    float thickness = Math.Max(14f, baseH * (0.42f + 0.52f * w2) * (0.28f + 0.72f * edge));
+                    topPts[i] = new PointF(x, ty);
+                    botPts[segs - i] = new PointF(x, ty + thickness);
+                }
+
+                using (GraphicsPath path = new GraphicsPath())
+                {
+                    path.AddCurve(topPts, 0.45f);
+                    path.AddCurve(botPts, 0.45f);
+                    path.CloseFigure();
+
+                    int aPeak = Math.Min(110, (int)((layer == 0 ? 44f : 34f) * surgeBoost));
+                    int aMid = Math.Min(80, (int)((layer == 0 ? 26f : 22f) * surgeBoost));
+                    Color cTop = (layer == 0) ? Color.FromArgb(0, 16, 185, 129) : Color.FromArgb(0, 99, 102, 241);
+                    Color cPeak = (layer == 0) ? Color.FromArgb(aPeak, 20, 210, 160) : Color.FromArgb(aPeak, 139, 92, 246);
+                    Color cMid = (layer == 0) ? Color.FromArgb(aMid, 56, 189, 248) : Color.FromArgb(aMid, 232, 121, 249);
+                    Color cBot = (layer == 0) ? Color.FromArgb(0, 56, 189, 248) : Color.FromArgb(0, 192, 132, 252);
+
+                    RectangleF bounds = new RectangleF(0f, 0f, Math.Max(10f, _screenW), baseH + 40f);
+                    using (LinearGradientBrush brush = new LinearGradientBrush(
+                        bounds, Color.Transparent, Color.Transparent, LinearGradientMode.Vertical))
+                    {
+                        ColorBlend cb = new ColorBlend(4);
+                        cb.Positions = new float[] { 0.0f, 0.34f, 0.68f, 1.0f };
+                        cb.Colors = new Color[] { cTop, cPeak, cMid, cBot };
+                        brush.InterpolationColors = cb;
+                        g.FillPath(brush, path);
+                    }
+                }
+            }
+        }
+
+        private void DrawShootingStars(Graphics g)
+        {
+            for (int i = 0; i < _shootingStars.Length; i++)
+            {
+                if (!_shootingStars[i].Active) continue;
+                ShootingStar st = _shootingStars[i];
+                float life = (float)st.Ttl / Math.Max(1, st.MaxTtl);
+                float fade = (life < 0.25f) ? (life / 0.25f) : (life > 0.85f ? (1f - life) / 0.15f : 1f);
+                int headA = Math.Max(0, Math.Min(255, (int)(245 * fade)));
+                if (headA < 6) continue;
+
+                float spd = (float)Math.Sqrt(st.Vx * st.Vx + st.Vy * st.Vy);
+                float ux = st.Vx / Math.Max(0.1f, spd);
+                float uy = st.Vy / Math.Max(0.1f, spd);
+                float tailX = st.X - ux * st.TailLen;
+                float tailY = st.Y - uy * st.TailLen;
+
+                using (LinearGradientBrush tailBrush = new LinearGradientBrush(
+                    new PointF(tailX, tailY),
+                    new PointF(st.X, st.Y),
+                    Color.FromArgb(0, st.Color.R, st.Color.G, st.Color.B),
+                    Color.FromArgb(headA, st.Color.R, st.Color.G, st.Color.B)))
+                using (Pen tailPen = new Pen(tailBrush, 2.2f) { EndCap = LineCap.Round })
+                {
+                    g.DrawLine(tailPen, tailX, tailY, st.X, st.Y);
+                }
+
+                // Parlayan 4 köşeli yıldız başı
+                using (SolidBrush glow = new SolidBrush(Color.FromArgb(headA / 3, st.Color.R, st.Color.G, st.Color.B)))
+                using (SolidBrush core = new SolidBrush(Color.FromArgb(headA, 255, 255, 255)))
+                {
+                    g.FillEllipse(glow, st.X - 6f, st.Y - 6f, 12f, 12f);
+                    g.FillEllipse(core, st.X - 2.2f, st.Y - 2.2f, 4.4f, 4.4f);
+                }
+            }
+        }
+
+        private void DrawSantaSleighAndTrail(Graphics g)
+        {
+            // 1. Sihirli Yıldız Tozu İzi (4 köşeli parlayan yıldızlar)
+            for (int i = 0; i < _santaSparkles.Length; i++)
+            {
+                if (!_santaSparkles[i].Active) continue;
+                SantaSparkle sp = _santaSparkles[i];
+                int a = Math.Max(15, Math.Min(240, (sp.Ttl * 240) / Math.Max(1, sp.MaxTtl)));
+                float r = sp.Size * (0.5f + 0.5f * ((float)sp.Ttl / Math.Max(1, sp.MaxTtl)));
+                using (SolidBrush b = new SolidBrush(Color.FromArgb(a, sp.Color.R, sp.Color.G, sp.Color.B)))
+                {
+                    PointF[] star = new PointF[]
+                    {
+                        new PointF(sp.X, sp.Y - r * 1.4f),
+                        new PointF(sp.X + r * 0.42f, sp.Y - r * 0.42f),
+                        new PointF(sp.X + r * 1.4f, sp.Y),
+                        new PointF(sp.X + r * 0.42f, sp.Y + r * 0.42f),
+                        new PointF(sp.X, sp.Y + r * 1.4f),
+                        new PointF(sp.X - r * 0.42f, sp.Y + r * 0.42f),
+                        new PointF(sp.X - r * 1.4f, sp.Y),
+                        new PointF(sp.X - r * 0.42f, sp.Y - r * 0.42f)
+                    };
+                    g.FillPolygon(b, star);
+                }
+            }
+
+            if (!_santaActive) return;
+
+            // Arka planda uygulama penceresinin üzerinden geçerken nazikçe yarı-saydamlaşarak rahatsız etmez
+            float alphaMult = IsPointInsideAnyApplicationWindow(_santaX, _santaY) ? 0.62f : 0.96f;
+            int aFull = (int)(250 * alphaMult);
+            int aSoft = (int)(175 * alphaMult);
+
+            GraphicsState st = g.Save();
+            g.TranslateTransform(_santaX, _santaY);
+            g.ScaleTransform(_santaDir * _santaScale, _santaScale);
+            float climbTilt = Math.Max(-12f, Math.Min(12f, (_santaY - _santaPrevY) * 6.0f));
+            g.RotateTransform(climbTilt);
+
+            // 2. Kızak Ön Feneri Sıcak Işık Halesi
+            using (SolidBrush lampHalo = new SolidBrush(Color.FromArgb((int)(46 * alphaMult), 253, 224, 71)))
+                g.FillEllipse(lampHalo, -44f, -22f, 38f, 38f);
+
+            // 3. Altın Dizginler (Noel Baba'dan 3 ren geyiğine zarif kavis)
+            using (Pen reinPen = new Pen(Color.FromArgb(aSoft, 250, 204, 21), 1.4f))
+            {
+                float r0y = (float)Math.Sin(_santaGallopPhase) * 3.5f;
+                float r1y = (float)Math.Sin(_santaGallopPhase - 1.15f) * 3.5f - 1.5f;
+                float r2y = (float)Math.Sin(_santaGallopPhase - 2.30f) * 3.5f - 3.0f;
+                g.DrawBezier(reinPen, -44f, -11f, -18f, -4f, 0f, r0y - 4f, 18f, r0y - 6f);
+                g.DrawBezier(reinPen, 18f, r0y - 6f, 40f, r0y - 2f, 48f, r1y - 4f, 64f, r1y - 6f);
+                g.DrawBezier(reinPen, 64f, r1y - 6f, 84f, r1y - 2f, 94f, r2y - 4f, 110f, r2y - 6f);
+            }
+
+            // 4. 3 Adet Dörtnala Uçan Ren Geyiği (Öndeki Rudolph Kırmızı Parlayan Burunlu!)
+            DrawReindeer(g, 18f, (float)Math.Sin(_santaGallopPhase) * 3.5f, _santaGallopPhase, false, alphaMult);
+            DrawReindeer(g, 64f, (float)Math.Sin(_santaGallopPhase - 1.15f) * 3.5f - 1.5f, _santaGallopPhase - 1.15f, false, alphaMult);
+            DrawReindeer(g, 110f, (float)Math.Sin(_santaGallopPhase - 2.30f) * 3.5f - 3.0f, _santaGallopPhase - 2.30f, true, alphaMult);
+
+            // 5. Hediye Çuvalı & Taşan Paketler (Kızağın arkasında)
+            using (SolidBrush sackBrush = new SolidBrush(Color.FromArgb(aFull, 146, 64, 14)))
+            using (SolidBrush giftGreen = new SolidBrush(Color.FromArgb(aFull, 16, 185, 129)))
+            using (SolidBrush giftBlue = new SolidBrush(Color.FromArgb(aFull, 59, 130, 246)))
+            using (SolidBrush giftGold = new SolidBrush(Color.FromArgb(aFull, 250, 204, 21)))
+            {
+                g.FillEllipse(sackBrush, -98f, -24f, 34f, 28f);
+                g.FillRectangle(giftGreen, -92f, -30f, 10f, 10f);
+                g.FillRectangle(giftBlue, -80f, -28f, 9f, 9f);
+                g.FillRectangle(giftGold, -88f, -30f, 2f, 10f);
+                g.FillRectangle(giftGold, -76f, -28f, 2f, 9f);
+            }
+
+            // 6. Noel Baba (Kızak içinde, sallanan kol ve ponponlu şapka)
+            float waveArm = (float)Math.Sin(_santaWavePhase * 3.2f) * 5.5f;
+            using (SolidBrush redCoat = new SolidBrush(Color.FromArgb(aFull, 220, 38, 38)))
+            using (SolidBrush whiteFur = new SolidBrush(Color.FromArgb(aFull, 255, 255, 255)))
+            using (SolidBrush skin = new SolidBrush(Color.FromArgb(aFull, 254, 215, 170)))
+            using (SolidBrush eyeB = new SolidBrush(Color.FromArgb(aFull, 15, 23, 42)))
+            using (SolidBrush cheekB = new SolidBrush(Color.FromArgb((int)(120 * alphaMult), 248, 113, 113)))
+            using (Pen armPen = new Pen(Color.FromArgb(aFull, 220, 38, 38), 5.0f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            {
+                // Gövde
+                g.FillEllipse(redCoat, -72f, -22f, 24f, 24f);
+                // El sallayan / dizgin tutan kol
+                g.DrawLine(armPen, -56f, -15f, -44f, -12f + waveArm * 0.45f);
+                g.FillEllipse(whiteFur, -46f, -15f + waveArm * 0.45f, 5.5f, 5.5f);
+                // Kafa, göz & pembe yanak
+                g.FillEllipse(skin, -65f, -34f, 14f, 14f);
+                g.FillEllipse(eyeB, -55.5f, -29.2f, 2.3f, 2.3f);
+                g.FillEllipse(cheekB, -57.5f, -26.5f, 3.8f, 2.4f);
+                // Kabarık beyaz sakal
+                g.FillEllipse(whiteFur, -63f, -26f, 14f, 11f);
+                // Noel Şapkası
+                PointF[] hatPts = new PointF[]
+                {
+                    new PointF(-66f, -32f),
+                    new PointF(-50f, -32f),
+                    new PointF(-70f, -41f)
+                };
+                g.FillPolygon(redCoat, hatPts);
+                g.FillEllipse(whiteFur, -67f, -34f, 18f, 5f);
+                g.FillEllipse(whiteFur, -74f, -44f, 6f, 6f);
+            }
+
+            // 7. Süslü Kırmızı & Altın Kızak Gövdesi + Kıvrık Kızak Ayakları
+            using (Pen runnerPen = new Pen(Color.FromArgb(aFull, 250, 204, 21), 2.8f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            using (Pen strutPen = new Pen(Color.FromArgb(aFull, 217, 119, 6), 2.2f))
+            using (SolidBrush sleighBody = new SolidBrush(Color.FromArgb(aFull, 185, 28, 28)))
+            using (Pen goldTrim = new Pen(Color.FromArgb(aFull, 253, 224, 71), 2.0f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            {
+                // Kızak ayakları & dikmeler
+                g.DrawLine(strutPen, -86f, 4f, -86f, 16f);
+                g.DrawLine(strutPen, -46f, 4f, -46f, 16f);
+                g.DrawLine(runnerPen, -104f, 16f, -34f, 16f);
+                g.DrawBezier(runnerPen, -34f, 16f, -20f, 16f, -14f, 6f, -22f, 1f);
+
+                // Kırmızı kızak gövdesi
+                PointF[] body = new PointF[]
+                {
+                    new PointF(-102f, -10f),
+                    new PointF(-74f, -8f),
+                    new PointF(-44f, -8f),
+                    new PointF(-26f, -14f),
+                    new PointF(-32f, 7f),
+                    new PointF(-94f, 7f)
+                };
+                g.FillPolygon(sleighBody, body);
+                g.DrawLines(goldTrim, new PointF[] {
+                    new PointF(-102f, -10f),
+                    new PointF(-74f, -8f),
+                    new PointF(-44f, -8f),
+                    new PointF(-26f, -14f)
+                });
+                g.DrawLine(goldTrim, -92f, 5f, -34f, 5f);
+
+                // Ön altın fener
+                using (SolidBrush lampCore = new SolidBrush(Color.FromArgb(aFull, 254, 240, 138)))
+                    g.FillEllipse(lampCore, -29f, -11f, 6f, 6f);
+            }
+
+            g.Restore(st);
+        }
+
+        private static void DrawReindeer(Graphics g, float x, float y, float gallopPhase, bool isRudolph, float alphaMult)
+        {
+            int a = (int)(248 * alphaMult);
+            float legSwing = (float)Math.Sin(gallopPhase) * 9.5f;
+            float backSwing = (float)Math.Sin(gallopPhase + Math.PI * 0.85) * 9.5f;
+
+            using (SolidBrush bodyBrush = new SolidBrush(Color.FromArgb(a, 138, 86, 48)))
+            using (SolidBrush bellyBrush = new SolidBrush(Color.FromArgb(a, 180, 128, 82)))
+            using (Pen legPen = new Pen(Color.FromArgb(a, 110, 66, 35), 2.5f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            using (Pen antlerPen = new Pen(Color.FromArgb(a, 78, 46, 24), 1.5f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            using (Pen harnessPen = new Pen(Color.FromArgb(a, 220, 38, 38), 2.2f))
+            {
+                // Arka & ön bacaklar (dörtnala hareketli)
+                g.DrawLine(legPen, x - 9f, y + 3f, x - 14f - backSwing * 0.7f, y + 14f - Math.Abs(backSwing) * 0.25f);
+                g.DrawLine(legPen, x - 6f, y + 3f, x - 10f + backSwing * 0.5f, y + 14f);
+                g.DrawLine(legPen, x + 7f, y + 3f, x + 13f + legSwing * 0.75f, y + 13f - Math.Abs(legSwing) * 0.3f);
+                g.DrawLine(legPen, x + 4f, y + 3f, x + 9f - legSwing * 0.5f, y + 14f);
+
+                // Kuyruk
+                g.FillEllipse(bellyBrush, x - 15f, y - 5f, 5f, 4f);
+
+                // Gövde
+                g.FillEllipse(bodyBrush, x - 13f, y - 6f, 25f, 12f);
+                g.FillEllipse(bellyBrush, x - 8f, y + 0.5f, 16f, 5f);
+
+                // Kırmızı koşum kayışı & altın zil
+                g.DrawLine(harnessPen, x + 3f, y - 6f, x + 1f, y + 5f);
+                using (SolidBrush bell = new SolidBrush(Color.FromArgb(a, 250, 204, 21)))
+                    g.FillEllipse(bell, x + 5f, y - 3f, 3.6f, 3.6f);
+
+                // Boyun ve Kafa
+                PointF[] neck = new PointF[] {
+                    new PointF(x + 6f, y - 2f),
+                    new PointF(x + 12f, y - 14f),
+                    new PointF(x + 17f, y - 12f),
+                    new PointF(x + 11f, y + 2f)
+                };
+                g.FillPolygon(bodyBrush, neck);
+                g.FillEllipse(bodyBrush, x + 10f, y - 17f, 12f, 7.5f);
+                using (SolidBrush eyeB = new SolidBrush(Color.FromArgb(a, 15, 23, 42)))
+                    g.FillEllipse(eyeB, x + 16.5f, y - 14.8f, 1.8f, 1.8f);
+
+                // Dallı Boynuzlar
+                g.DrawLine(antlerPen, x + 13f, y - 16f, x + 10f, y - 25f);
+                g.DrawLine(antlerPen, x + 11f, y - 21f, x + 15f, y - 24f);
+                g.DrawLine(antlerPen, x + 15f, y - 16f, x + 17f, y - 24f);
+                g.DrawLine(antlerPen, x + 16f, y - 20f, x + 20f, y - 22f);
+
+                // Rudolph'un Parlayan Kırmızı Burnu!
+                if (isRudolph)
+                {
+                    using (SolidBrush noseGlow = new SolidBrush(Color.FromArgb((int)(95 * alphaMult), 239, 68, 68)))
+                    using (SolidBrush noseCore = new SolidBrush(Color.FromArgb(a, 248, 45, 45)))
+                    {
+                        g.FillEllipse(noseGlow, x + 16.5f, y - 19.5f, 12f, 12f);
+                        g.FillEllipse(noseCore, x + 20.0f, y - 15.8f, 4.6f, 4.6f);
+                    }
+                }
+            }
+        }
+
+        private void DrawGiftBox(Graphics g, GiftBoxEntity gift)
+        {
+            float sz = gift.Size;
+            float cx = gift.X;
+            float by = gift.Y;
+            float swayAngle = gift.HasParachute ? (float)Math.Sin(gift.SwayPhase) * 14f : 0f;
+
+            GraphicsState st = g.Save();
+            g.TranslateTransform(cx, by - sz * 0.5f);
+            g.RotateTransform(swayAngle);
+
+            // Havadaysa şirin beyaz paraşüt çiz
+            if (gift.HasParachute)
+            {
+                float canopyY = -sz * 1.85f;
+                using (Pen cord = new Pen(Color.FromArgb(190, 226, 232, 240), 1.1f))
+                {
+                    g.DrawLine(cord, -sz * 0.9f, canopyY + sz * 0.55f, -sz * 0.35f, -sz * 0.45f);
+                    g.DrawLine(cord, 0f, canopyY + sz * 0.45f, 0f, -sz * 0.45f);
+                    g.DrawLine(cord, sz * 0.9f, canopyY + sz * 0.55f, sz * 0.35f, -sz * 0.45f);
+                }
+                using (SolidBrush canopy = new SolidBrush(Color.FromArgb(238, 248, 250, 252)))
+                using (SolidBrush stripe = new SolidBrush(Color.FromArgb(220, gift.BoxColor.R, gift.BoxColor.G, gift.BoxColor.B)))
+                using (Pen canopyRim = new Pen(Color.FromArgb(180, 148, 163, 184), 1.2f))
+                {
+                    RectangleF cRect = new RectangleF(-sz * 1.05f, canopyY, sz * 2.1f, sz * 1.25f);
+                    g.FillPie(canopy, cRect.X, cRect.Y, cRect.Width, cRect.Height, 180, 180);
+                    g.FillPie(stripe, cRect.X, cRect.Y, cRect.Width, cRect.Height, 240, 60);
+                    g.DrawPie(canopyRim, cRect.X, cRect.Y, cRect.Width, cRect.Height, 180, 180);
+                }
+            }
+            else
+            {
+                // Yere indiyse tıklamaya davet eden hafif altın ışıltı halesi
+                float pulse = 0.55f + 0.45f * (float)Math.Sin(gift.PulsePhase);
+                using (SolidBrush halo = new SolidBrush(Color.FromArgb((int)(42 * pulse), 253, 224, 71)))
+                    g.FillEllipse(halo, -sz * 0.9f, -sz * 0.9f, sz * 1.8f, sz * 1.8f);
+            }
+
+            // Hediye Kutusu
+            RectangleF boxRect = new RectangleF(-sz * 0.5f, -sz * 0.5f, sz, sz);
+            using (GraphicsPath bp = GraphicsExt.CreateRoundedRect(boxRect, 3.5f))
+            using (SolidBrush boxBrush = new SolidBrush(gift.BoxColor))
+            using (SolidBrush ribBrush = new SolidBrush(gift.RibbonColor))
+            using (Pen outline = new Pen(Color.FromArgb(180, 15, 23, 42), 1.2f))
+            {
+                g.FillPath(boxBrush, bp);
+                g.FillRectangle(ribBrush, -sz * 0.12f, -sz * 0.5f, sz * 0.24f, sz);
+                g.FillRectangle(ribBrush, -sz * 0.5f, -sz * 0.12f, sz, sz * 0.24f);
+                g.DrawPath(outline, bp);
+
+                // Üst kurdele fiyongu
+                using (Pen bowPen = new Pen(gift.RibbonColor, 2.2f))
+                {
+                    g.DrawEllipse(bowPen, -sz * 0.34f, -sz * 0.74f, sz * 0.34f, sz * 0.26f);
+                    g.DrawEllipse(bowPen, 0f, -sz * 0.74f, sz * 0.34f, sz * 0.26f);
+                }
+            }
+
+            g.Restore(st);
+        }
+
+        private void DrawFireworks(Graphics g)
+        {
+            // Yükselen roket başları
+            for (int i = 0; i < _rockets.Length; i++)
+            {
+                if (!_rockets[i].Active) continue;
+                FireworkRocket r = _rockets[i];
+                using (SolidBrush glow = new SolidBrush(Color.FromArgb(90, r.PrimaryColor.R, r.PrimaryColor.G, r.PrimaryColor.B)))
+                using (SolidBrush core = new SolidBrush(Color.White))
+                {
+                    g.FillEllipse(glow, r.X - 6f, r.Y - 6f, 12f, 12f);
+                    g.FillEllipse(core, r.X - 2.5f, r.Y - 2.5f, 5f, 5f);
+                }
+            }
+
+            // Patlayan kıvılcım çizgileri ve ışıldayan uçlar
+            for (int i = 0; i < _sparks.Length; i++)
+            {
+                if (!_sparks[i].Active) continue;
+                FireworkSpark sp = _sparks[i];
+                float life = (float)sp.Ttl / Math.Max(1, sp.MaxTtl);
+                if (sp.Twinkle && (sp.Ttl % 4 == 0)) continue;
+                int a = Math.Max(10, Math.Min(255, (int)(255 * life)));
+
+                using (Pen trail = new Pen(Color.FromArgb(a, sp.Color.R, sp.Color.G, sp.Color.B), Math.Max(1.2f, sp.Size * 0.72f))
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round
+                })
+                {
+                    g.DrawLine(trail, sp.PrevX, sp.PrevY, sp.X, sp.Y);
+                }
+                if (life > 0.45f)
+                {
+                    float cr = sp.Size * 0.48f;
+                    g.FillEllipse(_alphaWhiteBrushes[a], sp.X - cr, sp.Y - cr, cr * 2f, cr * 2f);
+                }
+            }
+        }
+
         private void DrawShadedSnowSphere(Graphics g, float cx, float cy, float r)
         {
-            RectangleF rect = new RectangleF(cx - r, cy - r, r * 2f, r * 2f);
-            using (LinearGradientBrush sphereBrush = new LinearGradientBrush(
-                rect,
-                Color.FromArgb(255, 255, 255, 255),
-                Color.FromArgb(245, 191, 219, 254),
-                45f))
-            {
-                g.FillEllipse(sphereBrush, rect);
-            }
-            g.DrawEllipse(_snowOutlinePen, rect);
+            SnowmanRenderer.DrawShadedSnowSphere(g, cx, cy, r);
         }
 
         private void DrawSnowballEntity(Graphics g, SnowballEntity sb)
@@ -3988,113 +5916,9 @@ namespace SnowyWindows
             }
         }
 
-        private void DrawSnowman(Graphics g, SnowmanEntity sm)
+        private void DrawSnowman(Graphics g, SnowmanEntity sm, bool isHighlighted)
         {
-            GraphicsState state = g.Save();
-            g.TranslateTransform(sm.X, sm.Y);
-            g.RotateTransform(sm.TiltAngle);
-
-            float r1 = sm.R1;
-            float y1 = -r1 + 2f;
-            float r2 = sm.R2;
-            float y2 = y1 - r1 - r2 * 0.64f;
-            float r3 = sm.R3;
-            float y3 = y2 - r2 - r3 * 0.64f;
-
-            DrawShadedSnowSphere(g, 0f, y1, r1);
-            DrawShadedSnowSphere(g, 0f, y2, r2);
-            DrawShadedSnowSphere(g, 0f, y3, r3);
-
-            float s = r2 / 8.5f;
-
-            // Kömür düğmeler
-            g.FillEllipse(_coalBrush, -1.8f * s, y2 - 2.8f * s, 3.6f * s, 3.6f * s);
-            g.FillEllipse(_coalBrush, -1.8f * s, y2 + 2.8f * s, 3.6f * s, 3.6f * s);
-
-            // Gözler (Fare imlecine doğru hafifçe bakar ve göz kırpar)
-            float lookX = Math.Max(-1.0f, Math.Min(1.0f, (_lastCursorPos.X - sm.X) / 220f)) * s;
-            float lookY = Math.Max(-0.8f, Math.Min(0.8f, (_lastCursorPos.Y - (sm.Y + y3)) / 220f)) * s;
-
-            if (sm.BlinkTimer > 0 && sm.BlinkTimer < 6 && sm.SurpriseTimer == 0)
-            {
-                using (Pen blinkPen = new Pen(Color.FromArgb(245, 15, 23, 42), 1.4f))
-                {
-                    g.DrawLine(blinkPen, -3.8f * s, y3 - 1.5f * s, -1.2f * s, y3 - 1.5f * s);
-                    g.DrawLine(blinkPen, 1.0f * s, y3 - 1.5f * s, 3.6f * s, y3 - 1.5f * s);
-                }
-            }
-            else
-            {
-                float eyeR = (sm.SurpriseTimer > 0) ? 3.0f * s : 2.4f * s;
-                g.FillEllipse(_coalBrush, -3.4f * s + lookX, y3 - 2.6f * s + lookY, eyeR, eyeR);
-                g.FillEllipse(_coalBrush, 1.2f * s + lookX, y3 - 2.6f * s + lookY, eyeR, eyeR);
-            }
-
-            // Vurulunca şaşkın ağız ('O')
-            if (sm.SurpriseTimer > 0)
-            {
-                g.FillEllipse(_coalBrush, -1.6f * s, y3 + 2.8f * s, 3.2f * s, 3.6f * s);
-            }
-
-            // Havuç burun
-            PointF[] nose = {
-                new PointF(0f, y3 - 0.4f * s),
-                new PointF(8.5f * s, y3 + 1.5f * s),
-                new PointF(0f, y3 + 3.0f * s)
-            };
-            g.FillPolygon(_carrotBrush, nose);
-
-            // Atkı
-            float sy = y2 - r2 * 0.72f;
-            using (Pen scarfPen = new Pen(sm.ScarfColor, Math.Max(2.5f, 3.8f * s)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
-            {
-                g.DrawLine(scarfPen, -r2 * 0.82f, sy, r2 * 0.82f, sy);
-                g.DrawLine(scarfPen, r2 * 0.35f, sy, r2 * 0.58f, sy + 8.5f * s);
-            }
-
-            // Şapka (Kafadan vurulmadıysa)
-            if (sm.HasHat)
-            {
-                float hy = y3 - r3 * 0.78f;
-                DrawHatGeometry(g, 0f, hy, r3, s, sm.HatStyle, sm.HatColor);
-            }
-
-            g.Restore(state);
-        }
-
-        private void DrawHatGeometry(Graphics g, float cx, float hy, float r3, float s, int style, Color color)
-        {
-            if (style == 0 || style == 2)
-            {
-                // Ponponlu Kış Beresi (Beyaz kürklü alt şerit + kubbeli bere + tepe ponponu)
-                using (SolidBrush hatBrush = new SolidBrush(color))
-                {
-                    float domeW = r3 * 1.95f;
-                    float domeH = r3 * 1.55f;
-                    g.FillPie(hatBrush, cx - domeW * 0.5f, hy - domeH * 0.75f, domeW, domeH * 1.4f, 180, 180);
-                }
-                // Beyaz yumuşak kürk şeridi
-                float brimW = r3 * 2.15f;
-                float brimH = Math.Max(3.5f, 4.2f * s);
-                g.FillEllipse(_alphaWhiteBrushes[252], cx - brimW * 0.5f, hy - brimH * 0.5f, brimW, brimH);
-                g.DrawEllipse(_snowOutlinePen, cx - brimW * 0.5f, hy - brimH * 0.5f, brimW, brimH);
-
-                // Tepe beyaz ponponu
-                float pomR = Math.Max(3.2f, 3.8f * s);
-                float pomY = hy - r3 * 1.22f;
-                g.FillEllipse(_alphaWhiteBrushes[255], cx - pomR, pomY - pomR, pomR * 2f, pomR * 2f);
-                g.DrawEllipse(_snowOutlinePen, cx - pomR, pomY - pomR, pomR * 2f, pomR * 2f);
-            }
-            else
-            {
-                // Klasik Silindir Şapka
-                using (SolidBrush hatBrush = new SolidBrush(color))
-                using (Pen brimPen = new Pen(color, Math.Max(2.2f, 2.8f * s)))
-                {
-                    g.DrawLine(brimPen, cx - r3 * 1.18f, hy, cx + r3 * 1.18f, hy);
-                    g.FillRectangle(hatBrush, cx - r3 * 0.74f, hy - 9.0f * s, r3 * 1.48f, 9.0f * s);
-                }
-            }
+            SnowmanRenderer.DrawSnowman(g, sm, sm.X, sm.Y, 1.0f, _lastCursorPos.X, _lastCursorPos.Y, _time, isHighlighted);
         }
 
         private void DrawFlyingHat(Graphics g, FlyingHat fh)
@@ -4102,7 +5926,7 @@ namespace SnowyWindows
             GraphicsState st = g.Save();
             g.TranslateTransform(fh.X, fh.Y);
             g.RotateTransform(fh.Angle);
-            DrawHatGeometry(g, 0f, 0f, 7.5f * fh.Scale, fh.Scale, fh.HatStyle, fh.HatColor);
+            SnowmanRenderer.DrawHatGeometry(g, 0f, 0f, 7.5f * fh.Scale, fh.Scale, fh.HatStyle, fh.HatColor);
             g.Restore(st);
         }
 
@@ -5019,6 +6843,1122 @@ namespace SnowyWindows
         }
     }
 
+    // ========================================================================
+    // 10a. MODERN KARDAN ADAM GARDIROBU PENCERESİ & ÖZEL MODERN BİLEŞENLER
+    // ========================================================================
+    internal sealed class SegmentedTabBar : Control
+    {
+        private string[] _tabs = new string[0];
+        private int _selectedIndex;
+        private int _hoverIndex = -1;
+
+        public event Action<int> SelectedIndexChanged;
+
+        public int SelectedIndex
+        {
+            get { return _selectedIndex; }
+            set
+            {
+                if (_tabs.Length == 0) return;
+                int clamped = Math.Max(0, Math.Min(_tabs.Length - 1, value));
+                if (clamped != _selectedIndex)
+                {
+                    _selectedIndex = clamped;
+                    Invalidate();
+                    if (SelectedIndexChanged != null) SelectedIndexChanged(_selectedIndex);
+                }
+            }
+        }
+
+        public SegmentedTabBar()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+            DoubleBuffered = true;
+            BackColor = Color.Transparent;
+            Font = new Font("Segoe UI Semibold", 8.4f, FontStyle.Bold);
+            Cursor = Cursors.Hand;
+        }
+
+        public void SetTabs(string[] labels)
+        {
+            _tabs = labels ?? new string[0];
+            if (_selectedIndex >= _tabs.Length) _selectedIndex = 0;
+            Invalidate();
+        }
+
+        private int HitTest(int x)
+        {
+            if (_tabs.Length == 0 || Width <= 0) return -1;
+            int idx = (x * _tabs.Length) / Width;
+            return Math.Max(0, Math.Min(_tabs.Length - 1, idx));
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            int h = HitTest(e.X);
+            if (h != _hoverIndex) { _hoverIndex = h; Invalidate(); }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            _hoverIndex = -1;
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left)
+            {
+                int idx = HitTest(e.X);
+                if (idx >= 0) SelectedIndex = idx;
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            RectangleF track = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+            using (GraphicsPath tp = GraphicsExt.CreateRoundedRect(track, 10f))
+            using (SolidBrush tb = new SolidBrush(Color.FromArgb(14, 22, 38)))
+            using (Pen tpen = new Pen(Color.FromArgb(36, 52, 78), 1f))
+            {
+                g.FillPath(tb, tp);
+                g.DrawPath(tpen, tp);
+            }
+
+            if (_tabs.Length == 0) return;
+            float segW = (Width - 6f) / _tabs.Length;
+            for (int i = 0; i < _tabs.Length; i++)
+            {
+                RectangleF segRect = new RectangleF(3f + i * segW, 3f, segW, Height - 6f);
+                if (i == _selectedIndex)
+                {
+                    using (GraphicsPath sp = GraphicsExt.CreateRoundedRect(segRect, 8f))
+                    using (LinearGradientBrush sb = new LinearGradientBrush(
+                        segRect,
+                        Color.FromArgb(14, 165, 233),
+                        Color.FromArgb(59, 130, 246),
+                        LinearGradientMode.Horizontal))
+                    {
+                        g.FillPath(sb, sp);
+                    }
+                }
+                else if (i == _hoverIndex)
+                {
+                    using (GraphicsPath sp = GraphicsExt.CreateRoundedRect(segRect, 8f))
+                    using (SolidBrush hb = new SolidBrush(Color.FromArgb(26, 40, 64)))
+                        g.FillPath(hb, sp);
+                }
+
+                Color txtCol = (i == _selectedIndex) ? Color.White : Color.FromArgb(160, 178, 202);
+                TextRenderer.DrawText(
+                    g, _tabs[i], Font,
+                    Rectangle.Round(segRect),
+                    txtCol,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+        }
+    }
+
+    internal sealed class OptionChipSelector : Control
+    {
+        private string[] _items = new string[0];
+        private int _columns = 3;
+        private int _selectedIndex;
+        private int _hoverIndex = -1;
+
+        public event Action<int> SelectedIndexChanged;
+
+        public int Columns
+        {
+            get { return _columns; }
+            set { _columns = Math.Max(1, value); Invalidate(); }
+        }
+
+        public int SelectedIndex
+        {
+            get { return _selectedIndex; }
+            set
+            {
+                if (_selectedIndex != value)
+                {
+                    _selectedIndex = value;
+                    Invalidate();
+                }
+            }
+        }
+
+        public OptionChipSelector()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+            DoubleBuffered = true;
+            BackColor = Color.Transparent;
+            Font = new Font("Segoe UI Semibold", 8.1f, FontStyle.Bold);
+            Cursor = Cursors.Hand;
+        }
+
+        public void SetItems(string[] items, int columns)
+        {
+            _items = items ?? new string[0];
+            _columns = Math.Max(1, columns);
+            Invalidate();
+        }
+
+        private RectangleF GetChipRect(int index)
+        {
+            const float gap = 6f;
+            int rows = Math.Max(1, (_items.Length + _columns - 1) / _columns);
+            float cellW = (Width - gap * (_columns - 1)) / _columns;
+            float cellH = Math.Min(32f, (Height - gap * (rows - 1)) / rows);
+            int col = index % _columns;
+            int row = index / _columns;
+            return new RectangleF(col * (cellW + gap), row * (cellH + gap), cellW, cellH);
+        }
+
+        private int HitTest(int mx, int my)
+        {
+            for (int i = 0; i < _items.Length; i++)
+            {
+                if (GetChipRect(i).Contains(mx, my)) return i;
+            }
+            return -1;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            int h = HitTest(e.X, e.Y);
+            if (h != _hoverIndex) { _hoverIndex = h; Invalidate(); }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            _hoverIndex = -1;
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left)
+            {
+                int idx = HitTest(e.X, e.Y);
+                if (idx >= 0)
+                {
+                    _selectedIndex = idx;
+                    Invalidate();
+                    if (SelectedIndexChanged != null) SelectedIndexChanged(idx);
+                }
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            for (int i = 0; i < _items.Length; i++)
+            {
+                RectangleF r = GetChipRect(i);
+                r.Width -= 1f;
+                r.Height -= 1f;
+                bool active = (i == _selectedIndex);
+                bool hover = (i == _hoverIndex);
+
+                Color fill = active
+                    ? Color.FromArgb(24, 58, 92)
+                    : (hover ? Color.FromArgb(30, 44, 68) : Color.FromArgb(20, 30, 48));
+                Color border = active
+                    ? Color.FromArgb(56, 189, 248)
+                    : (hover ? Color.FromArgb(74, 98, 134) : Color.FromArgb(38, 52, 74));
+
+                using (GraphicsPath path = GraphicsExt.CreateRoundedRect(r, 8f))
+                using (SolidBrush fb = new SolidBrush(fill))
+                using (Pen bp = new Pen(border, active ? 1.5f : 1f))
+                {
+                    g.FillPath(fb, path);
+                    g.DrawPath(bp, path);
+                }
+
+                Color textCol = active ? Color.FromArgb(224, 242, 254) : Color.FromArgb(203, 213, 225);
+                TextRenderer.DrawText(
+                    g, _items[i], Font,
+                    Rectangle.Round(r),
+                    textCol,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+        }
+    }
+
+    internal sealed class ColorSwatchBar : Control
+    {
+        private Color[] _colors = SnowmanEntity.WardrobePalette;
+        private int _selectedIndex;
+        private int _hoverIndex = -1;
+
+        public event Action<Color> ColorSelected;
+
+        public ColorSwatchBar()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+            DoubleBuffered = true;
+            BackColor = Color.Transparent;
+            Size = new Size(292, 32);
+            Cursor = Cursors.Hand;
+        }
+
+        public void SelectClosestColor(Color c)
+        {
+            int best = 0;
+            int bestDist = int.MaxValue;
+            for (int i = 0; i < _colors.Length; i++)
+            {
+                int dr = _colors[i].R - c.R;
+                int dg = _colors[i].G - c.G;
+                int db = _colors[i].B - c.B;
+                int d = dr * dr + dg * dg + db * db;
+                if (d < bestDist) { bestDist = d; best = i; }
+            }
+            _selectedIndex = best;
+            Invalidate();
+        }
+
+        private RectangleF GetDotRect(int index)
+        {
+            float spacing = Width / (float)Math.Max(1, _colors.Length);
+            float cx = spacing * (index + 0.5f);
+            float cy = Height * 0.5f;
+            float r = 10.5f;
+            return new RectangleF(cx - r, cy - r, r * 2f, r * 2f);
+        }
+
+        private int HitTest(int mx, int my)
+        {
+            for (int i = 0; i < _colors.Length; i++)
+            {
+                RectangleF r = GetDotRect(i);
+                r.Inflate(4f, 4f);
+                if (r.Contains(mx, my)) return i;
+            }
+            return -1;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            int h = HitTest(e.X, e.Y);
+            if (h != _hoverIndex) { _hoverIndex = h; Invalidate(); }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            _hoverIndex = -1;
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left)
+            {
+                int idx = HitTest(e.X, e.Y);
+                if (idx >= 0)
+                {
+                    _selectedIndex = idx;
+                    Invalidate();
+                    if (ColorSelected != null) ColorSelected(_colors[idx]);
+                }
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            for (int i = 0; i < _colors.Length; i++)
+            {
+                RectangleF r = GetDotRect(i);
+                bool active = (i == _selectedIndex);
+                bool hover = (i == _hoverIndex);
+
+                if (active || hover)
+                {
+                    RectangleF ring = r;
+                    ring.Inflate(3.5f, 3.5f);
+                    using (Pen halo = new Pen(active ? Color.FromArgb(245, 56, 189, 248) : Color.FromArgb(140, 148, 163, 184), active ? 2.2f : 1.4f))
+                        g.DrawEllipse(halo, ring);
+                }
+
+                using (SolidBrush cb = new SolidBrush(_colors[i]))
+                using (Pen rim = new Pen(Color.FromArgb(150, 255, 255, 255), 1.1f))
+                {
+                    g.FillEllipse(cb, r);
+                    g.DrawEllipse(rim, r);
+                }
+
+                // Parlak cam yansıması
+                using (SolidBrush shine = new SolidBrush(Color.FromArgb(95, 255, 255, 255)))
+                    g.FillEllipse(shine, r.X + 4f, r.Y + 3f, 6f, 4f);
+            }
+        }
+    }
+
+    internal sealed class SnowmanPreviewCanvas : Control
+    {
+        public SnowmanEntity Target;
+        private readonly PointF[] _snowPts = new PointF[22];
+        private readonly float[] _snowSpd = new float[22];
+        private float _animTime;
+        private Point _mousePos;
+
+        public SnowmanPreviewCanvas()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+            DoubleBuffered = true;
+            BackColor = Color.Transparent;
+
+            Random rng = new Random(42);
+            for (int i = 0; i < _snowPts.Length; i++)
+            {
+                _snowPts[i] = new PointF((float)(rng.NextDouble() * 190.0), (float)(rng.NextDouble() * 240.0));
+                _snowSpd[i] = 0.45f + (float)rng.NextDouble() * 0.9f;
+            }
+            _mousePos = new Point(120, 100);
+        }
+
+        public void StepAnimation()
+        {
+            _animTime += 0.033f;
+            for (int i = 0; i < _snowPts.Length; i++)
+            {
+                _snowPts[i].Y += _snowSpd[i];
+                _snowPts[i].X += (float)Math.Sin(_animTime * 1.4f + i) * 0.25f;
+                if (_snowPts[i].Y > Height - 16)
+                {
+                    _snowPts[i].Y = 6f;
+                    _snowPts[i].X = (float)((i * 37 + (int)(_animTime * 40)) % Math.Max(10, Width - 12)) + 6f;
+                }
+            }
+            Invalidate();
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            _mousePos = e.Location;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            RectangleF card = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+            using (GraphicsPath clipPath = GraphicsExt.CreateRoundedRect(card, 14f))
+            {
+                GraphicsState st = g.Save();
+                g.SetClip(clipPath);
+
+                // Kış gecesi gradyanı
+                using (LinearGradientBrush sky = new LinearGradientBrush(
+                    card,
+                    Color.FromArgb(10, 20, 42),
+                    Color.FromArgb(20, 35, 64),
+                    LinearGradientMode.Vertical))
+                {
+                    g.FillRectangle(sky, card);
+                }
+
+                // Hafif Kuzey Işığı parlaklığı (stüdyo arka ışığı)
+                using (LinearGradientBrush aurora = new LinearGradientBrush(
+                    new RectangleF(0f, 0f, Width, 84f),
+                    Color.FromArgb(50, 16, 185, 129),
+                    Color.FromArgb(0, 56, 189, 248),
+                    LinearGradientMode.Vertical))
+                {
+                    g.FillRectangle(aurora, 0f, 0f, Width, 84f);
+                }
+
+                // Karlı zemin tepesi
+                using (LinearGradientBrush hill = new LinearGradientBrush(
+                    new RectangleF(0f, Height - 52f, Width, 56f),
+                    Color.FromArgb(235, 224, 242, 254),
+                    Color.FromArgb(245, 148, 197, 253),
+                    LinearGradientMode.Vertical))
+                {
+                    g.FillEllipse(hill, -30f, Height - 44f, Width + 60f, 74f);
+                }
+
+                // Canlı Kardan Adam Çizimi (Büyük Ölçekli!)
+                if (Target != null)
+                {
+                    float totalH = (Target.R1 + Target.R2 + Target.R3) * 2.1f;
+                    float fitScale = Math.Max(1.05f, Math.Min(2.25f, 136f / Math.Max(40f, totalH)));
+                    float savedTilt = Target.TiltAngle;
+                    Target.TiltAngle = (float)Math.Sin(_animTime * 1.6f) * 2.2f;
+                    SnowmanRenderer.DrawSnowman(
+                        g, Target,
+                        Width * 0.5f, Height - 30f, fitScale,
+                        _mousePos.X, _mousePos.Y, _animTime, false);
+                    Target.TiltAngle = savedTilt;
+                }
+
+                // Ön planda süzülen minik kar taneleri
+                using (SolidBrush flakeBrush = new SolidBrush(Color.FromArgb(175, 255, 255, 255)))
+                {
+                    for (int i = 0; i < _snowPts.Length; i++)
+                    {
+                        float sz = (i % 3 == 0) ? 3.2f : 2.1f;
+                        g.FillEllipse(flakeBrush, _snowPts[i].X, _snowPts[i].Y, sz, sz);
+                    }
+                }
+
+                g.Restore(st);
+
+                using (Pen border = new Pen(Color.FromArgb(56, 82, 118), 1.2f))
+                    g.DrawPath(border, clipPath);
+            }
+        }
+    }
+
+    internal sealed class SnowmanWardrobeForm : Form
+    {
+        private readonly SnowOverlayForm _overlay;
+        public SnowmanEntity TargetSnowman { get; private set; }
+
+        private readonly Label _titleLbl;
+        private readonly Label _liveBadge;
+        private readonly ModernButton _randomBtn;
+        private readonly SnowmanPreviewCanvas _preview;
+        private readonly ModernButton[] _presetBtns = new ModernButton[4];
+        private readonly ModernButton _deleteBtn;
+
+        private readonly SegmentedTabBar _tabs;
+        private readonly Panel[] _tabPanels = new Panel[4];
+
+        // Tab 0: Hat
+        private readonly Label _hatStyleLbl;
+        private readonly OptionChipSelector _hatChips;
+        private readonly Label _hatColorLbl;
+        private readonly ColorSwatchBar _hatColors;
+
+        // Tab 1: Face & Glasses
+        private readonly Label _glassesLbl;
+        private readonly OptionChipSelector _glassesChips;
+        private readonly Label _faceLbl;
+        private readonly OptionChipSelector _faceChips;
+
+        // Tab 2: Scarf
+        private readonly Label _scarfStyleLbl;
+        private readonly OptionChipSelector _scarfChips;
+        private readonly Label _scarfColorLbl;
+        private readonly ColorSwatchBar _scarfColors;
+
+        // Tab 3: Outfit & Arms
+        private readonly Label _outfitStyleLbl;
+        private readonly OptionChipSelector _outfitChips;
+        private readonly Label _armStyleLbl;
+        private readonly OptionChipSelector _armChips;
+        private readonly Label _outfitColorLbl;
+        private readonly ColorSwatchBar _outfitColors;
+
+        // Size slider
+        private readonly Label _sizeLbl;
+        private readonly Label _sizeValLbl;
+        private readonly ModernSlider _sizeSlider;
+
+        private readonly Timer _animTimer;
+        private double _fadeTarget = 0.97;
+
+        public SnowmanWardrobeForm(SnowOverlayForm overlay, SnowmanEntity target)
+        {
+            _overlay = overlay;
+            TargetSnowman = target;
+
+            SuspendLayout();
+            AutoScaleDimensions = new SizeF(96f, 96f);
+            AutoScaleMode = AutoScaleMode.Dpi;
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.Manual;
+            ClientSize = new Size(536, 444);
+            BackColor = Color.FromArgb(11, 17, 30);
+            ForeColor = Color.FromArgb(248, 250, 252);
+            TopMost = true;
+            ShowInTaskbar = false;
+            KeyPreview = true;
+            DoubleBuffered = true;
+            Opacity = 0.05;
+
+            // ---- Sürüklenebilir Modern Başlık Çubuğu ----
+            Panel header = new Panel
+            {
+                Location = new Point(0, 3),
+                Size = new Size(536, 42),
+                BackColor = Color.FromArgb(15, 24, 42)
+            };
+            MouseEventHandler dragHandler = (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    NativeMethods.ReleaseCapture();
+                    NativeMethods.SendMessage(Handle, NativeMethods.WM_NCLBUTTONDOWN, NativeMethods.HT_CAPTION, 0);
+                }
+            };
+            header.MouseDown += dragHandler;
+            Controls.Add(header);
+
+            _titleLbl = new Label
+            {
+                Font = new Font("Segoe UI Semibold", 10.5f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(248, 250, 252),
+                BackColor = Color.Transparent,
+                Location = new Point(16, 10),
+                AutoSize = true
+            };
+            _titleLbl.MouseDown += dragHandler;
+            header.Controls.Add(_titleLbl);
+
+            _liveBadge = new Label
+            {
+                Font = new Font("Segoe UI", 7.2f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(52, 211, 153),
+                BackColor = Color.FromArgb(14, 48, 42),
+                Location = new Point(236, 11),
+                Size = new Size(54, 19),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            header.Controls.Add(_liveBadge);
+
+            _randomBtn = new ModernButton
+            {
+                Location = new Point(404, 8),
+                Size = new Size(92, 26),
+                CornerRadius = 8,
+                FillColor = Color.FromArgb(30, 48, 78),
+                BorderColor = Color.FromArgb(56, 189, 248),
+                ForeColor = Color.FromArgb(186, 230, 253),
+                Font = new Font("Segoe UI Semibold", 8.0f, FontStyle.Bold)
+            };
+            _randomBtn.Click += (s, e) =>
+            {
+                if (TargetSnowman != null)
+                {
+                    TargetSnowman.RandomizeOutfit(new Random());
+                    TargetSnowman.TiltVel = 8f;
+                    SyncControlsFromSnowman();
+                }
+            };
+            header.Controls.Add(_randomBtn);
+
+            ModernButton closeBtn = new ModernButton
+            {
+                Text = "✕",
+                Location = new Point(502, 8),
+                Size = new Size(26, 26),
+                CornerRadius = 8,
+                FillColor = Color.FromArgb(58, 24, 34),
+                BorderColor = Color.FromArgb(110, 42, 56),
+                ForeColor = Color.FromArgb(252, 165, 165),
+                Font = new Font("Segoe UI", 8.2f, FontStyle.Bold)
+            };
+            closeBtn.Click += (s, e) => Close();
+            header.Controls.Add(closeBtn);
+
+            // ---- Sol Sütun: Canlı Animasyonlu Kardan Adam Önizleme Stüdyosu ----
+            _preview = new SnowmanPreviewCanvas
+            {
+                Location = new Point(16, 56),
+                Size = new Size(192, 244),
+                Target = target
+            };
+            Controls.Add(_preview);
+
+            // 2x2 Hazır Stil Butonları
+            for (int i = 0; i < 4; i++)
+            {
+                int presetIdx = i;
+                int col = i % 2;
+                int row = i / 2;
+                ModernButton pb = new ModernButton
+                {
+                    Location = new Point(16 + col * 99, 308 + row * 34),
+                    Size = new Size(93, 28),
+                    CornerRadius = 8,
+                    FillColor = Color.FromArgb(22, 34, 54),
+                    BorderColor = Color.FromArgb(46, 66, 98),
+                    Font = new Font("Segoe UI Semibold", 7.9f, FontStyle.Bold)
+                };
+                pb.Click += (s, e) =>
+                {
+                    if (TargetSnowman != null)
+                    {
+                        TargetSnowman.ApplyPreset(presetIdx);
+                        TargetSnowman.TiltVel = 7f;
+                        SyncControlsFromSnowman();
+                    }
+                };
+                _presetBtns[i] = pb;
+                Controls.Add(pb);
+            }
+
+            _deleteBtn = new ModernButton
+            {
+                Location = new Point(16, 382),
+                Size = new Size(192, 32),
+                CornerRadius = 9,
+                FillColor = Color.FromArgb(52, 22, 30),
+                BorderColor = Color.FromArgb(120, 42, 56),
+                ForeColor = Color.FromArgb(252, 165, 165),
+                Font = new Font("Segoe UI Semibold", 8.2f, FontStyle.Bold)
+            };
+            _deleteBtn.Click += (s, e) =>
+            {
+                if (TargetSnowman != null)
+                    _overlay.DeleteSnowman(TargetSnowman);
+            };
+            Controls.Add(_deleteBtn);
+
+            // ---- Sağ Sütun: Modern Sekmeli Gardırop Düzenleyici ----
+            const int rx = 222;
+            const int rw = 298;
+
+            _tabs = new SegmentedTabBar
+            {
+                Location = new Point(rx, 56),
+                Size = new Size(rw, 34)
+            };
+            _tabs.SelectedIndexChanged += ShowTab;
+            Controls.Add(_tabs);
+
+            for (int i = 0; i < 4; i++)
+            {
+                _tabPanels[i] = new Panel
+                {
+                    Location = new Point(rx, 100),
+                    Size = new Size(rw, 268),
+                    BackColor = Color.FromArgb(11, 17, 30),
+                    Visible = (i == 0)
+                };
+                Controls.Add(_tabPanels[i]);
+            }
+
+            // -- TAB 0: Şapka --
+            _hatStyleLbl = CreateSectionLabel(0, 0);
+            _tabPanels[0].Controls.Add(_hatStyleLbl);
+
+            _hatChips = new OptionChipSelector
+            {
+                Location = new Point(0, 22),
+                Size = new Size(rw, 114)
+            };
+            _hatChips.SelectedIndexChanged += idx =>
+            {
+                if (TargetSnowman == null) return;
+                if (idx == 0)
+                {
+                    TargetSnowman.HasHat = false;
+                }
+                else
+                {
+                    TargetSnowman.HasHat = true;
+                    TargetSnowman.HatStyle = idx - 1;
+                }
+                TargetSnowman.TiltVel = 4.5f;
+            };
+            _tabPanels[0].Controls.Add(_hatChips);
+
+            _hatColorLbl = CreateSectionLabel(0, 152);
+            _tabPanels[0].Controls.Add(_hatColorLbl);
+
+            _hatColors = new ColorSwatchBar
+            {
+                Location = new Point(0, 176),
+                Size = new Size(rw, 34)
+            };
+            _hatColors.ColorSelected += c =>
+            {
+                if (TargetSnowman != null)
+                {
+                    TargetSnowman.HatColor = c;
+                    TargetSnowman.HasHat = true;
+                }
+            };
+            _tabPanels[0].Controls.Add(_hatColors);
+
+            // -- TAB 1: Gözlük & Yüz --
+            _glassesLbl = CreateSectionLabel(0, 0);
+            _tabPanels[1].Controls.Add(_glassesLbl);
+
+            _glassesChips = new OptionChipSelector
+            {
+                Location = new Point(0, 22),
+                Size = new Size(rw, 76)
+            };
+            _glassesChips.SelectedIndexChanged += idx =>
+            {
+                if (TargetSnowman != null) TargetSnowman.GlassesStyle = idx;
+            };
+            _tabPanels[1].Controls.Add(_glassesChips);
+
+            _faceLbl = CreateSectionLabel(0, 116);
+            _tabPanels[1].Controls.Add(_faceLbl);
+
+            _faceChips = new OptionChipSelector
+            {
+                Location = new Point(0, 138),
+                Size = new Size(rw, 76)
+            };
+            _faceChips.SelectedIndexChanged += idx =>
+            {
+                if (TargetSnowman != null) TargetSnowman.FaceStyle = idx;
+            };
+            _tabPanels[1].Controls.Add(_faceChips);
+
+            // -- TAB 2: Atkı & Boyun --
+            _scarfStyleLbl = CreateSectionLabel(0, 0);
+            _tabPanels[2].Controls.Add(_scarfStyleLbl);
+
+            _scarfChips = new OptionChipSelector
+            {
+                Location = new Point(0, 22),
+                Size = new Size(rw, 78)
+            };
+            _scarfChips.SelectedIndexChanged += idx =>
+            {
+                if (TargetSnowman != null) TargetSnowman.ScarfStyle = idx;
+            };
+            _tabPanels[2].Controls.Add(_scarfChips);
+
+            _scarfColorLbl = CreateSectionLabel(0, 120);
+            _tabPanels[2].Controls.Add(_scarfColorLbl);
+
+            _scarfColors = new ColorSwatchBar
+            {
+                Location = new Point(0, 144),
+                Size = new Size(rw, 34)
+            };
+            _scarfColors.ColorSelected += c =>
+            {
+                if (TargetSnowman != null)
+                {
+                    TargetSnowman.ScarfColor = c;
+                    if (TargetSnowman.ScarfStyle == 0)
+                    {
+                        TargetSnowman.ScarfStyle = 1;
+                        _scarfChips.SelectedIndex = 1;
+                    }
+                }
+            };
+            _tabPanels[2].Controls.Add(_scarfColors);
+
+            // -- TAB 3: Kıyafet & Kollar --
+            _outfitStyleLbl = CreateSectionLabel(0, 0);
+            _tabPanels[3].Controls.Add(_outfitStyleLbl);
+
+            _outfitChips = new OptionChipSelector
+            {
+                Location = new Point(0, 20),
+                Size = new Size(rw, 68)
+            };
+            _outfitChips.SelectedIndexChanged += idx =>
+            {
+                if (TargetSnowman != null) TargetSnowman.OutfitStyle = idx;
+            };
+            _tabPanels[3].Controls.Add(_outfitChips);
+
+            _armStyleLbl = CreateSectionLabel(0, 96);
+            _tabPanels[3].Controls.Add(_armStyleLbl);
+
+            _armChips = new OptionChipSelector
+            {
+                Location = new Point(0, 116),
+                Size = new Size(rw, 68)
+            };
+            _armChips.SelectedIndexChanged += idx =>
+            {
+                if (TargetSnowman != null) TargetSnowman.ArmStyle = idx;
+            };
+            _tabPanels[3].Controls.Add(_armChips);
+
+            _outfitColorLbl = CreateSectionLabel(0, 192);
+            _tabPanels[3].Controls.Add(_outfitColorLbl);
+
+            _outfitColors = new ColorSwatchBar
+            {
+                Location = new Point(0, 214),
+                Size = new Size(rw, 34)
+            };
+            _outfitColors.ColorSelected += c =>
+            {
+                if (TargetSnowman != null)
+                {
+                    TargetSnowman.OutfitColor = c;
+                    if (TargetSnowman.OutfitStyle == 0)
+                    {
+                        TargetSnowman.OutfitStyle = 2;
+                        _outfitChips.SelectedIndex = 2;
+                    }
+                }
+            };
+            _tabPanels[3].Controls.Add(_outfitColors);
+
+            // ---- Alt Kalıcı Boyut Kaydırıcısı ----
+            ModernCard sizeCard = new ModernCard
+            {
+                Location = new Point(rx, 372),
+                Size = new Size(rw, 52),
+                CornerRadius = 10,
+                FillColor = Color.FromArgb(18, 28, 46),
+                BorderColor = Color.FromArgb(38, 52, 74)
+            };
+            Controls.Add(sizeCard);
+
+            _sizeLbl = new Label
+            {
+                Font = new Font("Segoe UI Semibold", 8.2f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(203, 213, 225),
+                BackColor = Color.FromArgb(18, 28, 46),
+                Location = new Point(12, 7),
+                AutoSize = true
+            };
+            sizeCard.Controls.Add(_sizeLbl);
+
+            _sizeValLbl = new Label
+            {
+                Font = new Font("Consolas", 8.5f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(56, 189, 248),
+                BackColor = Color.FromArgb(18, 28, 46),
+                Location = new Point(rw - 72, 7),
+                Size = new Size(60, 16),
+                TextAlign = ContentAlignment.MiddleRight
+            };
+            sizeCard.Controls.Add(_sizeValLbl);
+
+            _sizeSlider = new ModernSlider
+            {
+                Location = new Point(8, 26),
+                Size = new Size(rw - 16, 20),
+                Minimum = 75,
+                Maximum = 140,
+                Value = 100
+            };
+            _sizeSlider.Scroll += (s, e) =>
+            {
+                if (TargetSnowman != null)
+                {
+                    TargetSnowman.ApplyScale(_sizeSlider.Value / 100f);
+                    _sizeValLbl.Text = "%" + _sizeSlider.Value;
+                }
+            };
+            sizeCard.Controls.Add(_sizeSlider);
+
+            _animTimer = new Timer { Interval = 30 };
+            _animTimer.Tick += (s, e) =>
+            {
+                if (Opacity < _fadeTarget)
+                    Opacity = Math.Min(_fadeTarget, Opacity + 0.14);
+                _preview.StepAnimation();
+            };
+            _animTimer.Start();
+
+            KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Escape)
+                    Close();
+            };
+
+            FormClosed += (s, e) =>
+            {
+                _animTimer.Stop();
+                _animTimer.Dispose();
+            };
+
+            ApplyLanguage();
+            SyncControlsFromSnowman();
+            ResumeLayout(true);
+        }
+
+        private static Label CreateSectionLabel(int x, int y)
+        {
+            return new Label
+            {
+                Location = new Point(x, y),
+                AutoSize = true,
+                Font = new Font("Segoe UI Semibold", 8.3f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(148, 163, 184),
+                BackColor = Color.Transparent
+            };
+        }
+
+        private string Tr(string tr, string en)
+        {
+            return _overlay.IsEnglish ? en : tr;
+        }
+
+        public void SetTargetSnowman(SnowmanEntity sm)
+        {
+            TargetSnowman = sm;
+            _preview.Target = sm;
+            SyncControlsFromSnowman();
+        }
+
+        public void ApplyLanguage()
+        {
+            _titleLbl.Text = Tr("⛄ Kardan Adam Gardırobu", "⛄ Snowman Wardrobe");
+            _liveBadge.Text = Tr("CANLI", "LIVE");
+            _randomBtn.Text = Tr("🎲 Rastgele", "🎲 Random");
+            _deleteBtn.Text = Tr("🗑 Kardan Adamı Sil", "🗑 Delete Snowman");
+
+            _presetBtns[0].Text = Tr("🎅 Noel", "🎅 Santa");
+            _presetBtns[1].Text = Tr("🎩 Beyefendi", "🎩 Dapper");
+            _presetBtns[2].Text = Tr("😎 Havalı", "😎 Cool");
+            _presetBtns[3].Text = Tr("🧙 Büyücü", "🧙 Wizard");
+
+            _tabs.SetTabs(new string[] {
+                Tr("Şapka", "Hat"),
+                Tr("Yüz", "Face"),
+                Tr("Atkı", "Scarf"),
+                Tr("Kıyafet", "Outfit")
+            });
+
+            _hatStyleLbl.Text = Tr("Şapka Stili", "Hat Style");
+            _hatChips.SetItems(new string[] {
+                Tr("Yok", "None"),
+                Tr("🧶 Bere", "🧶 Beanie"),
+                Tr("🎩 Silindir", "🎩 Top Hat"),
+                Tr("🎅 Noel", "🎅 Santa"),
+                Tr("👑 Taç", "👑 Crown"),
+                Tr("🧢 Kulaklıklı", "🧢 Ushanka"),
+                Tr("🧙 Büyücü", "🧙 Wizard")
+            }, 3);
+            _hatColorLbl.Text = Tr("Şapka Rengi", "Hat Color");
+
+            _glassesLbl.Text = Tr("Gözlük & Vizör", "Eyewear");
+            _glassesChips.SetItems(new string[] {
+                Tr("Yok", "None"),
+                Tr("🕶 Güneş", "🕶 Shades"),
+                Tr("👓 Yuvarlak", "👓 Round"),
+                Tr("🧐 Monokl", "🧐 Monocle"),
+                Tr("🥽 Kayak", "🥽 Goggles")
+            }, 3);
+
+            _faceLbl.Text = Tr("Yüz İfadesi", "Expression");
+            _faceChips.SetItems(new string[] {
+                Tr("🥕 Klasik", "🥕 Classic"),
+                Tr("😊 Gülümse", "😊 Rosy Smile"),
+                Tr("🥸 Bıyık", "🥸 Mustache"),
+                Tr("🪈 Pipo", "🪈 Pipe")
+            }, 2);
+
+            _scarfStyleLbl.Text = Tr("Atkı & Boyunluk", "Scarf & Neckwear");
+            _scarfChips.SetItems(new string[] {
+                Tr("Yok", "None"),
+                Tr("🧣 Klasik", "🧣 Classic"),
+                Tr("🎀 Çizgili", "🎀 Striped"),
+                Tr("🤵 Papyon", "🤵 Bow Tie"),
+                Tr("❄️ Kürklü", "❄️ Fur Collar")
+            }, 3);
+            _scarfColorLbl.Text = Tr("Atkı / Aksesuar Rengi", "Scarf / Accent Color");
+
+            _outfitStyleLbl.Text = Tr("Gövde Kıyafeti", "Body Outfit");
+            _outfitChips.SetItems(new string[] {
+                Tr("⚫ Düğme", "⚫ Coal"),
+                Tr("🦺 Yelek", "🦺 Vest"),
+                Tr("🧶 Kazak", "🧶 Sweater"),
+                Tr("🦸 Pelerin", "🦸 Cape")
+            }, 2);
+
+            _armStyleLbl.Text = Tr("Kollar & Elde Aksesuar", "Arms & Handheld");
+            _armChips.SetItems(new string[] {
+                Tr("🌿 Dal", "🌿 Twigs"),
+                Tr("🧤 Eldiven", "🧤 Mittens"),
+                Tr("🧹 Süpürge", "🧹 Broom"),
+                Tr("🍬 Şeker", "🍬 Candy"),
+                Tr("Yok", "None")
+            }, 3);
+
+            _outfitColorLbl.Text = Tr("Kıyafet Rengi", "Outfit Color");
+            _sizeLbl.Text = Tr("Kardan Adam Boyutu", "Snowman Size");
+        }
+
+        private void SyncControlsFromSnowman()
+        {
+            if (TargetSnowman == null) return;
+            _hatChips.SelectedIndex = TargetSnowman.HasHat ? (TargetSnowman.HatStyle + 1) : 0;
+            _hatColors.SelectClosestColor(TargetSnowman.HatColor);
+            _glassesChips.SelectedIndex = TargetSnowman.GlassesStyle;
+            _faceChips.SelectedIndex = TargetSnowman.FaceStyle;
+            _scarfChips.SelectedIndex = TargetSnowman.ScarfStyle;
+            _scarfColors.SelectClosestColor(TargetSnowman.ScarfColor);
+            _outfitChips.SelectedIndex = TargetSnowman.OutfitStyle;
+            _armChips.SelectedIndex = TargetSnowman.ArmStyle;
+            _outfitColors.SelectClosestColor(TargetSnowman.OutfitColor);
+            int pct = (int)Math.Round(TargetSnowman.Scale * 100f);
+            _sizeSlider.Value = Math.Max(75, Math.Min(140, pct));
+            _sizeValLbl.Text = "%" + _sizeSlider.Value;
+        }
+
+        private void ShowTab(int index)
+        {
+            for (int i = 0; i < _tabPanels.Length; i++)
+                _tabPanels[i].Visible = (i == index);
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ClassStyle |= 0x00020000; // CS_DROPSHADOW
+                return cp;
+            }
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            try
+            {
+                int dark = 1;
+                NativeMethods.DwmSetWindowAttribute(Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+                int corner = NativeMethods.DWMWCP_ROUND;
+                NativeMethods.DwmSetWindowAttribute(Handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
+            }
+            catch { }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            Graphics g = e.Graphics;
+            // Üst ince Aurora cam vurgusu
+            using (LinearGradientBrush accent = new LinearGradientBrush(
+                new Rectangle(0, 0, Width, 3),
+                Color.FromArgb(56, 189, 248),
+                Color.FromArgb(52, 211, 153),
+                LinearGradientMode.Horizontal))
+            {
+                g.FillRectangle(accent, 0, 0, Width, 3);
+            }
+            using (Pen borderPen = new Pen(Color.FromArgb(56, 82, 118), 1f))
+                g.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
+        }
+    }
+
     internal sealed class ControlPanelForm : Form
     {
         private const int L = 18;
@@ -5050,6 +7990,10 @@ namespace SnowyWindows
         private readonly ModernButton _fireBtn;
         private readonly ModernButton _removeFireBtn;
         private readonly ModernButton _cableCarBtn;
+        private readonly ModernButton _santaBtn;
+        private readonly ModernButton _auroraBtn;
+        private readonly ModernButton _snowmanBtn;
+        private readonly ModernButton _surpriseBtn;
         private readonly ModernButton _multiMonBtn;
         private readonly ModernToggle _autoPauseToggle;
 
@@ -5084,7 +8028,7 @@ namespace SnowyWindows
             AutoScaleMode = AutoScaleMode.Dpi;
 
             Text = "Snowy for Windows";
-            ClientSize = new Size(316, 774);
+            ClientSize = new Size(316, 846);
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.Manual;
             Location = new Point(36, 48);
@@ -5156,6 +8100,7 @@ namespace SnowyWindows
             {
                 _overlay.IsEnglish = !_overlay.IsEnglish;
                 ApplyLanguage();
+                _overlay.RefreshWardrobeLanguage();
             };
             headerBar.Controls.Add(_langBtn);
 
@@ -5376,8 +8321,8 @@ namespace SnowyWindows
             };
             Controls.Add(_perfBtn);
 
-            // İki Uygulama Arası Teleferik Aç/Kapat Butonu
-            _cableCarBtn = CreateModernButton(new Point(L, 652), new Size(W, 30), Color.FromArgb(24, 35, 54));
+            // Teleferik & Noel Baba
+            _cableCarBtn = CreateModernButton(new Point(L, 652), new Size(136, 30), Color.FromArgb(24, 35, 54));
             _cableCarBtn.Click += (s, e) =>
             {
                 _overlay.CableCarEnabled = !_overlay.CableCarEnabled;
@@ -5385,7 +8330,38 @@ namespace SnowyWindows
             };
             Controls.Add(_cableCarBtn);
 
-            _multiMonBtn = CreateModernButton(new Point(L, 688), new Size(W, 30), Color.FromArgb(24, 35, 54));
+            _santaBtn = CreateModernButton(new Point(L + 144, 652), new Size(136, 30), Color.FromArgb(127, 29, 29));
+            _santaBtn.Click += (s, e) =>
+            {
+                _overlay.SantaEnabled = !_overlay.SantaEnabled;
+                if (_overlay.SantaEnabled) _overlay.SummonSantaSoon();
+                SyncSantaButton();
+            };
+            Controls.Add(_santaBtn);
+
+            // Kuzey Işıkları & Hızlı Kardan Adam Ekle
+            _auroraBtn = CreateModernButton(new Point(L, 688), new Size(136, 30), Color.FromArgb(14, 78, 72));
+            _auroraBtn.Click += (s, e) =>
+            {
+                _overlay.AuroraEnabled = !_overlay.AuroraEnabled;
+                SyncAuroraButton();
+            };
+            Controls.Add(_auroraBtn);
+
+            _snowmanBtn = CreateModernButton(new Point(L + 144, 688), new Size(136, 30), Color.FromArgb(24, 48, 76));
+            _snowmanBtn.BorderColor = Color.FromArgb(56, 189, 248);
+            _snowmanBtn.ForeColor = Color.FromArgb(224, 242, 254);
+            _snowmanBtn.Click += (s, e) => _overlay.SpawnDressedSnowmanOnActiveWindow(false);
+            Controls.Add(_snowmanBtn);
+
+            // Sürpriz Gösteri (Havai Fişekler + Aurora + Noel Baba!)
+            _surpriseBtn = CreateModernButton(new Point(L, 724), new Size(W, 32), Color.FromArgb(76, 29, 149));
+            _surpriseBtn.BorderColor = Color.FromArgb(167, 139, 250);
+            _surpriseBtn.ForeColor = Color.FromArgb(254, 240, 138);
+            _surpriseBtn.Click += (s, e) => _overlay.TriggerSurpriseShow();
+            Controls.Add(_surpriseBtn);
+
+            _multiMonBtn = CreateModernButton(new Point(L, 762), new Size(W, 30), Color.FromArgb(24, 35, 54));
             _multiMonBtn.Click += (s, e) =>
             {
                 _overlay.SetMultiMonitorMode(!_overlay.MultiMonitorEnabled);
@@ -5395,7 +8371,7 @@ namespace SnowyWindows
 
             _autoPauseToggle = new ModernToggle
             {
-                Location = new Point(L, 724),
+                Location = new Point(L, 798),
                 Size = new Size(W, 22),
                 Checked = _overlay.AutoPauseOnFullscreen
             };
@@ -5406,7 +8382,7 @@ namespace SnowyWindows
             {
                 Font = new Font("Segoe UI", 7.2f),
                 ForeColor = Color.FromArgb(100, 116, 139),
-                Location = new Point(L, 748),
+                Location = new Point(L, 822),
                 Size = new Size(W, 24),
                 TextAlign = ContentAlignment.TopCenter
             };
@@ -5521,8 +8497,10 @@ namespace SnowyWindows
             _removePlowBtn.Text = Tr("🗑 Kürek Sil", "🗑 Remove Plow");
             _fireBtn.Text = Tr("🔥 Kamp Ateşi", "🔥 Add Campfire");
             _removeFireBtn.Text = Tr("🗑 Ateş Sil", "🗑 Remove Fire");
+            _snowmanBtn.Text = Tr("⛄ Kardan Adam", "⛄ Add Snowman");
+            _surpriseBtn.Text = Tr("🎆 Sürpriz Gösteri! (F6)", "🎆 Surprise Show! (F6)");
             _autoPauseToggle.Text = Tr("Tam ekranda otomatik duraklat", "Auto-pause in fullscreen");
-            _footerHint.Text = Tr("F8: Kartopu at (⛄ vur) / 3 top = ⛄ / 🚜 & 🔥 fırlat", "F8: Throw snowballs (hit ⛄) / 3 balls = ⛄ / fling 🚜 & 🔥");
+            _footerHint.Text = Tr("F8: Sağ tık ⛄ = Giydir / 🎁 tıkla / F6 = Sürpriz", "F8: Right-click ⛄ = Dress / click 🎁 / F6 = Surprise");
 
             _trayShowItem.Text = Tr("Kontrol Panelini Göster", "Show Control Panel");
             _trayInteractItem.Text = Tr("Etkileşim Modu (F8)", "Interactive Mode (F8)");
@@ -5534,6 +8512,8 @@ namespace SnowyWindows
             SyncLightsButton();
             SyncIciclesButton();
             SyncCableCarButton();
+            SyncSantaButton();
+            SyncAuroraButton();
             SyncPerfButton();
             SyncPauseButton();
             SyncInteractiveBadge();
@@ -5637,7 +8617,7 @@ namespace SnowyWindows
         {
             if (_overlay.CableCarEnabled)
             {
-                _cableCarBtn.Text = Tr("🚡 Teleferik: Açık (2 Pencere Arası)", "🚡 Cable Car: On (Between 2 Apps)");
+                _cableCarBtn.Text = Tr("🚡 Teleferik: Açık", "🚡 Cable Car: On");
                 _cableCarBtn.FillColor = Color.FromArgb(127, 29, 29);
                 _cableCarBtn.BorderColor = Color.FromArgb(248, 113, 113);
                 _cableCarBtn.ForeColor = Color.FromArgb(254, 226, 226);
@@ -5650,6 +8630,44 @@ namespace SnowyWindows
                 _cableCarBtn.ForeColor = Color.FromArgb(203, 213, 225);
             }
             _cableCarBtn.Invalidate();
+        }
+
+        private void SyncSantaButton()
+        {
+            if (_overlay.SantaEnabled)
+            {
+                _santaBtn.Text = Tr("🎅 Noel Baba: Açık", "🎅 Santa: On");
+                _santaBtn.FillColor = Color.FromArgb(145, 28, 36);
+                _santaBtn.BorderColor = Color.FromArgb(248, 113, 113);
+                _santaBtn.ForeColor = Color.FromArgb(254, 226, 226);
+            }
+            else
+            {
+                _santaBtn.Text = Tr("🎅 Noel Baba: Kapalı", "🎅 Santa: Off");
+                _santaBtn.FillColor = Color.FromArgb(24, 35, 54);
+                _santaBtn.BorderColor = Color.FromArgb(46, 62, 88);
+                _santaBtn.ForeColor = Color.FromArgb(203, 213, 225);
+            }
+            _santaBtn.Invalidate();
+        }
+
+        private void SyncAuroraButton()
+        {
+            if (_overlay.AuroraEnabled)
+            {
+                _auroraBtn.Text = Tr("🌌 Kuzey Işığı: Açık", "🌌 Aurora: On");
+                _auroraBtn.FillColor = Color.FromArgb(14, 78, 72);
+                _auroraBtn.BorderColor = Color.FromArgb(52, 211, 153);
+                _auroraBtn.ForeColor = Color.FromArgb(209, 250, 229);
+            }
+            else
+            {
+                _auroraBtn.Text = Tr("🌌 Kuzey Işığı: Kapalı", "🌌 Aurora: Off");
+                _auroraBtn.FillColor = Color.FromArgb(24, 35, 54);
+                _auroraBtn.BorderColor = Color.FromArgb(46, 62, 88);
+                _auroraBtn.ForeColor = Color.FromArgb(203, 213, 225);
+            }
+            _auroraBtn.Invalidate();
         }
 
         private void SyncMultiMonitorButton()
@@ -5781,6 +8799,8 @@ namespace SnowyWindows
                         case "lights": o.FairyLightsEnabled = f > 0.5f; break;
                         case "icicles": o.IciclesEnabled = f > 0.5f; break;
                         case "cableCar": o.CableCarEnabled = f > 0.5f; break;
+                        case "santa": o.SantaEnabled = f > 0.5f; break;
+                        case "aurora": o.AuroraEnabled = f > 0.5f; break;
                         case "blizzard": o.BlizzardMode = f > 0.5f; break;
                         case "multiMonitor": if (f > 0.5f) o.SetMultiMonitorMode(true); break;
                         case "autoPause": o.AutoPauseOnFullscreen = f > 0.5f; break;
@@ -5814,6 +8834,8 @@ namespace SnowyWindows
                     "lights=" + (o.FairyLightsEnabled ? "1" : "0"),
                     "icicles=" + (o.IciclesEnabled ? "1" : "0"),
                     "cableCar=" + (o.CableCarEnabled ? "1" : "0"),
+                    "santa=" + (o.SantaEnabled ? "1" : "0"),
+                    "aurora=" + (o.AuroraEnabled ? "1" : "0"),
                     "blizzard=" + (o.BlizzardMode ? "1" : "0"),
                     "multiMonitor=" + (o.MultiMonitorEnabled ? "1" : "0"),
                     "autoPause=" + (o.AutoPauseOnFullscreen ? "1" : "0"),
