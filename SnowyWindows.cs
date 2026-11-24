@@ -250,6 +250,14 @@ namespace SnowyWindows
         public const uint SPIF_UPDATEINIFILE = 0x01;
         public const uint SPIF_SENDCHANGE = 0x02;
 
+        public const int SRCCOPY = 0x00CC0020;
+        public const int CAPTUREBLT = 0x40000000;
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        public static extern bool BitBlt(
+            IntPtr hdcDest, int nXDest, int nYDest, int nWidth, int nHeight,
+            IntPtr hdcSrc, int nXSrc, int nYSrc, int dwRop);
+
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, System.Text.StringBuilder pvParam, uint fWinIni);
 
@@ -3863,51 +3871,111 @@ namespace SnowyWindows
             try
             {
                 Rectangle bounds = Screen.PrimaryScreen.Bounds;
-                using (Bitmap shot = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb))
-                using (Graphics g = Graphics.FromImage(shot))
+                using (Bitmap shot = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppRgb))
                 {
-                    g.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size, CopyPixelOperation.SourceCopy | CopyPixelOperation.CaptureBlt);
-                    g.SmoothingMode = SmoothingMode.AntiAlias;
-
-                    // Zarif ince buzlu kış kartpostalı çerçevesi & köşe damgası
-                    using (Pen outerRim = new Pen(Color.FromArgb(145, 224, 242, 254), 10f))
-                        g.DrawRectangle(outerRim, 5, 5, bounds.Width - 10, bounds.Height - 10);
-                    using (Pen innerRim = new Pen(Color.FromArgb(180, 56, 189, 248), 2f))
-                        g.DrawRectangle(innerRim, 14, 14, bounds.Width - 28, bounds.Height - 28);
-
-                    string stamp = "❄️ Snowy for Windows  •  " + DateTime.Now.ToString("dd.MM.yyyy");
-                    using (Font f = new Font("Segoe UI Semibold", 11f, FontStyle.Bold))
+                    using (Graphics g = Graphics.FromImage(shot))
                     {
-                        SizeF sz = g.MeasureString(stamp, f);
-                        float pw = sz.Width + 22f;
-                        float ph = sz.Height + 12f;
-                        float px = bounds.Width - pw - 26f;
-                        float py = bounds.Height - ph - 26f;
-                        RectangleF badge = new RectangleF(px, py, pw, ph);
-                        using (GraphicsPath bp = GraphicsExt.CreateRoundedRect(badge, 10f))
-                        using (SolidBrush bg = new SolidBrush(Color.FromArgb(195, 11, 17, 30)))
-                        using (Pen rim = new Pen(Color.FromArgb(180, 56, 189, 248), 1.3f))
-                        using (SolidBrush txt = new SolidBrush(Color.FromArgb(245, 224, 242, 254)))
+                        bool blitted = false;
+                        IntPtr screenDc = NativeMethods.GetDC(IntPtr.Zero);
+                        if (screenDc != IntPtr.Zero)
                         {
-                            g.FillPath(bg, bp);
-                            g.DrawPath(rim, bp);
-                            g.DrawString(stamp, f, txt, px + 11f, py + 6f);
+                            IntPtr destDc = IntPtr.Zero;
+                            try
+                            {
+                                destDc = g.GetHdc();
+                                blitted = NativeMethods.BitBlt(
+                                    destDc, 0, 0, bounds.Width, bounds.Height,
+                                    screenDc, bounds.Left, bounds.Top,
+                                    NativeMethods.SRCCOPY | NativeMethods.CAPTUREBLT);
+                            }
+                            finally
+                            {
+                                if (destDc != IntPtr.Zero) g.ReleaseHdc(destDc);
+                                NativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
+                            }
+                        }
+
+                        if (!blitted)
+                        {
+                            // Yedek yol: Geçerli tek enum değeriyle CopyFromScreen (InvalidEnumArgumentException atmaz)
+                            g.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size, CopyPixelOperation.SourceCopy);
+                        }
+
+                        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+                        // Zarif ince buzlu kış kartpostalı çerçevesi & köşe damgası
+                        using (Pen outerRim = new Pen(Color.FromArgb(145, 224, 242, 254), 10f))
+                            g.DrawRectangle(outerRim, 5, 5, bounds.Width - 10, bounds.Height - 10);
+                        using (Pen innerRim = new Pen(Color.FromArgb(180, 56, 189, 248), 2f))
+                            g.DrawRectangle(innerRim, 14, 14, bounds.Width - 28, bounds.Height - 28);
+
+                        string stamp = "❄️ Snowy for Windows  •  " + DateTime.Now.ToString("dd.MM.yyyy");
+                        using (Font f = new Font("Segoe UI Semibold", 11f, FontStyle.Bold))
+                        {
+                            SizeF sz = g.MeasureString(stamp, f);
+                            float pw = sz.Width + 22f;
+                            float ph = sz.Height + 12f;
+                            float px = bounds.Width - pw - 26f;
+                            float py = bounds.Height - ph - 26f;
+                            RectangleF badge = new RectangleF(px, py, pw, ph);
+                            using (GraphicsPath bp = GraphicsExt.CreateRoundedRect(badge, 10f))
+                            using (SolidBrush bg = new SolidBrush(Color.FromArgb(195, 11, 17, 30)))
+                            using (Pen rim = new Pen(Color.FromArgb(180, 56, 189, 248), 1.3f))
+                            using (SolidBrush txt = new SolidBrush(Color.FromArgb(245, 224, 242, 254)))
+                            {
+                                g.FillPath(bg, bp);
+                                g.DrawPath(rim, bp);
+                                g.DrawString(stamp, f, txt, px + 11f, py + 6f);
+                            }
                         }
                     }
 
-                    string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-                    if (string.IsNullOrEmpty(desktop) || !System.IO.Directory.Exists(desktop))
-                        desktop = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+                    // Graphics kapandıktan sonra kaydet (Masaüstü -> Resimler -> AppData güvenli yedek zinciri)
                     string fileName = "SnowyPostcard_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
-                    string fullPath = System.IO.Path.Combine(desktop, fileName);
-                    shot.Save(fullPath, ImageFormat.Png);
+                    string[] candidateDirs = new string[]
+                    {
+                        Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                        Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+                        System.IO.Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                            "SnowyWindows\\Postcards")
+                    };
+                    string[] dirLabelsTr = new string[] { "Masaüstüne", "Resimler klasörüne", "AppData\\SnowyWindows\\Postcards içine" };
+                    string[] dirLabelsEn = new string[] { "Desktop", "Pictures", "AppData\\SnowyWindows\\Postcards" };
+
+                    int savedIdx = -1;
+                    for (int d = 0; d < candidateDirs.Length; d++)
+                    {
+                        if (string.IsNullOrEmpty(candidateDirs[d])) continue;
+                        try
+                        {
+                            System.IO.Directory.CreateDirectory(candidateDirs[d]);
+                            string fullPath = System.IO.Path.Combine(candidateDirs[d], fileName);
+                            shot.Save(fullPath, ImageFormat.Png);
+                            savedIdx = d;
+                            break;
+                        }
+                        catch { }
+                    }
+
+                    if (savedIdx >= 0)
+                    {
+                        if (SoundEnabled) _audioSynth.PlayGiftOpen();
+                        ShowToast(IsEnglish
+                            ? ("📸 Winter Postcard saved to " + dirLabelsEn[savedIdx] + "!")
+                            : ("📸 Kış Kartpostalı " + dirLabelsTr[savedIdx] + " kaydedildi!"));
+                    }
+                    else
+                    {
+                        ShowToast(IsEnglish ? "⚠️ Could not write postcard file." : "⚠️ Kartpostal dosyası yazılamadı.");
+                    }
                 }
-                if (SoundEnabled) _audioSynth.PlayGiftOpen();
-                ShowToast(IsEnglish ? "📸 Winter Postcard saved to Desktop!" : "📸 Kış Kartpostalı Masaüstüne kaydedildi!");
             }
-            catch
+            catch (Exception ex)
             {
-                ShowToast(IsEnglish ? "⚠️ Could not save postcard." : "⚠️ Kartpostal kaydedilemedi.");
+                ShowToast(IsEnglish
+                    ? ("⚠️ Postcard error: " + ex.Message)
+                    : ("⚠️ Kartpostal hatası: " + ex.Message));
             }
         }
 
@@ -12291,12 +12359,12 @@ namespace SnowyWindows
 
             Label verBadge = new Label
             {
-                Text = "v1.5",
-                Font = new Font("Consolas", 7.6f, FontStyle.Bold),
+                Text = "v1.5.1",
+                Font = new Font("Consolas", 7.4f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(52, 211, 153),
                 BackColor = Color.FromArgb(18, 42, 46),
-                Location = new Point(108, 13),
-                Size = new Size(38, 18),
+                Location = new Point(106, 13),
+                Size = new Size(44, 18),
                 TextAlign = ContentAlignment.MiddleCenter
             };
             headerBar.Controls.Add(verBadge);
