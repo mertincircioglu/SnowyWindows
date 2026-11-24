@@ -245,6 +245,17 @@ namespace SnowyWindows
         public const uint SND_NODEFAULT = 0x0002;
         public const uint SND_MEMORY = 0x0004;
 
+        public const uint SPI_GETDESKWALLPAPER = 0x0073;
+        public const uint SPI_SETDESKWALLPAPER = 0x0014;
+        public const uint SPIF_UPDATEINIFILE = 0x01;
+        public const uint SPIF_SENDCHANGE = 0x02;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, System.Text.StringBuilder pvParam, uint fWinIni);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, string pvParam, uint fWinIni);
+
         public static bool IsWindowCloaked(IntPtr hWnd)
         {
             int cloaked = 0;
@@ -626,6 +637,271 @@ namespace SnowyWindows
                 }
             }
             catch { return false; }
+        }
+    }
+
+    internal static class WallpaperManager
+    {
+        private static readonly string[] ThemeResources = new string[]
+        {
+            "",
+            "wp_arctic_night.jpg",   // 1: 1A — Kuzey Işıklı Kutup Gecesi
+            "wp_full_moon.jpg",      // 2: 2A — Dolunaylı Sisli Çam Vadisi
+            "wp_arctic_fjord.jpg",   // 3: 3B — Buzlu İskandinav Fiyordu
+            "wp_festive_bokeh.jpg",  // 4: 4B — Karlı Çam Dalları & Yılbaşı Bokeh
+            "wp_mountain_cabin.jpg"  // 5: 5A — Yılbaşı Işıklı Kütük Dağ Evi
+        };
+
+        private static string AppDir
+        {
+            get
+            {
+                return System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SnowyWindows");
+            }
+        }
+
+        private static string CacheDir
+        {
+            get { return System.IO.Path.Combine(AppDir, "wallpapers"); }
+        }
+
+        private static string BackupFilePath
+        {
+            get { return System.IO.Path.Combine(AppDir, "wallpaper_backup.ini"); }
+        }
+
+        private static bool _hasAppliedThisSession;
+        private static string _origPath;
+        private static string _origStyle;
+        private static string _origTile;
+
+        public static string GetCurrentWindowsWallpaper()
+        {
+            try
+            {
+                System.Text.StringBuilder sb = new System.Text.StringBuilder(1024);
+                if (NativeMethods.SystemParametersInfo(NativeMethods.SPI_GETDESKWALLPAPER, (uint)sb.Capacity, sb, 0))
+                    return sb.ToString();
+            }
+            catch { }
+            return "";
+        }
+
+        private static bool IsOurManagedWallpaper(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            try
+            {
+                string full = System.IO.Path.GetFullPath(path);
+                string cache = System.IO.Path.GetFullPath(CacheDir);
+                return full.StartsWith(cache, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        private static void EnsureOriginalBackupSaved()
+        {
+            try
+            {
+                // Diskte zaten bir yedek varsa (ör. önceki oturum beklenmedik kapandıysa) onu koru ve belleğe yükle!
+                if (System.IO.File.Exists(BackupFilePath))
+                {
+                    if (_origPath == null)
+                        LoadBackupFromDisk();
+                    return;
+                }
+
+                string curPath = GetCurrentWindowsWallpaper();
+                if (IsOurManagedWallpaper(curPath))
+                    return;
+
+                string style = "10";
+                string tile = "0";
+                try
+                {
+                    using (Microsoft.Win32.RegistryKey rk = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop", false))
+                    {
+                        if (rk != null)
+                        {
+                            object sv = rk.GetValue("WallpaperStyle");
+                            object tv = rk.GetValue("TileWallpaper");
+                            if (sv != null) style = sv.ToString();
+                            if (tv != null) tile = tv.ToString();
+                        }
+                    }
+                }
+                catch { }
+
+                _origPath = curPath ?? "";
+                _origStyle = style;
+                _origTile = tile;
+
+                System.IO.Directory.CreateDirectory(AppDir);
+                string pathB64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(_origPath));
+                System.IO.File.WriteAllLines(BackupFilePath, new string[]
+                {
+                    "pathB64=" + pathB64,
+                    "style=" + _origStyle,
+                    "tile=" + _origTile
+                });
+            }
+            catch { }
+        }
+
+        private static bool LoadBackupFromDisk()
+        {
+            try
+            {
+                if (!System.IO.File.Exists(BackupFilePath)) return false;
+                string[] lines = System.IO.File.ReadAllLines(BackupFilePath);
+                string p = "";
+                string st = "10";
+                string tl = "0";
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    int eq = lines[i].IndexOf('=');
+                    if (eq <= 0) continue;
+                    string k = lines[i].Substring(0, eq).Trim();
+                    string v = lines[i].Substring(eq + 1).Trim();
+                    if (k == "pathB64")
+                        p = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(v));
+                    else if (k == "style")
+                        st = v;
+                    else if (k == "tile")
+                        tl = v;
+                }
+                _origPath = p;
+                _origStyle = st;
+                _origTile = tl;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private static string ExtractEmbeddedWallpaper(int themeIndex)
+        {
+            if (themeIndex < 1 || themeIndex >= ThemeResources.Length) return null;
+            string resName = ThemeResources[themeIndex];
+            string outPath = System.IO.Path.Combine(CacheDir, resName);
+            System.IO.Directory.CreateDirectory(CacheDir);
+
+            try
+            {
+                System.Reflection.Assembly asm = System.Reflection.Assembly.GetExecutingAssembly();
+                using (System.IO.Stream st = asm.GetManifestResourceStream(resName))
+                {
+                    if (st != null)
+                    {
+                        using (System.IO.FileStream fs = new System.IO.FileStream(outPath, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+                        {
+                            byte[] buf = new byte[32768];
+                            int read;
+                            while ((read = st.Read(buf, 0, buf.Length)) > 0)
+                                fs.Write(buf, 0, read);
+                        }
+                        return outPath;
+                    }
+                }
+            }
+            catch { }
+
+            // Yedek yol: EXE yanındaki wallpapers/ klasörü
+            string sidePath = System.IO.Path.Combine(
+                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wallpapers"), resName);
+            if (System.IO.File.Exists(sidePath))
+            {
+                try
+                {
+                    System.IO.File.Copy(sidePath, outPath, true);
+                    return outPath;
+                }
+                catch { return sidePath; }
+            }
+            return null;
+        }
+
+        private static void SetWallpaperStyle(string style, string tile)
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey rk = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop", true))
+                {
+                    if (rk != null)
+                    {
+                        rk.SetValue("WallpaperStyle", style ?? "10");
+                        rk.SetValue("TileWallpaper", tile ?? "0");
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static bool ApplyTheme(int themeIndex, string customPath)
+        {
+            if (themeIndex <= 0)
+            {
+                RestoreOriginal();
+                return true;
+            }
+
+            string targetPath = null;
+            if (themeIndex >= 1 && themeIndex <= 5)
+            {
+                targetPath = ExtractEmbeddedWallpaper(themeIndex);
+            }
+            else if (themeIndex == 6 && !string.IsNullOrEmpty(customPath) && System.IO.File.Exists(customPath))
+            {
+                // Özel fotoğrafı kendi önbelleğimize kopyalayarak uygula (orijinal yedek kontrolüyle çakışmasın)
+                try
+                {
+                    System.IO.Directory.CreateDirectory(CacheDir);
+                    string ext = System.IO.Path.GetExtension(customPath);
+                    if (string.IsNullOrEmpty(ext)) ext = ".jpg";
+                    targetPath = System.IO.Path.Combine(CacheDir, "wp_custom_user" + ext);
+                    System.IO.File.Copy(customPath, targetPath, true);
+                }
+                catch
+                {
+                    targetPath = customPath;
+                }
+            }
+
+            if (string.IsNullOrEmpty(targetPath) || !System.IO.File.Exists(targetPath))
+                return false;
+
+            EnsureOriginalBackupSaved();
+            SetWallpaperStyle("10", "0"); // Fill (tam ekran orantılı doldurma)
+            bool ok = NativeMethods.SystemParametersInfo(
+                NativeMethods.SPI_SETDESKWALLPAPER, 0, targetPath,
+                NativeMethods.SPIF_UPDATEINIFILE | NativeMethods.SPIF_SENDCHANGE);
+            if (ok) _hasAppliedThisSession = true;
+            return ok;
+        }
+
+        public static void RestoreOriginal()
+        {
+            try
+            {
+                bool hasBackup = (_origPath != null) || LoadBackupFromDisk();
+                if (!hasBackup && !_hasAppliedThisSession)
+                    return;
+
+                string restorePath = _origPath ?? "";
+                if (!IsOurManagedWallpaper(restorePath))
+                {
+                    SetWallpaperStyle(_origStyle ?? "10", _origTile ?? "0");
+                    NativeMethods.SystemParametersInfo(
+                        NativeMethods.SPI_SETDESKWALLPAPER, 0, restorePath,
+                        NativeMethods.SPIF_UPDATEINIFILE | NativeMethods.SPIF_SENDCHANGE);
+                }
+
+                _hasAppliedThisSession = false;
+                _origPath = null;
+                if (System.IO.File.Exists(BackupFilePath))
+                    System.IO.File.Delete(BackupFilePath);
+            }
+            catch { }
         }
     }
 
@@ -2629,7 +2905,9 @@ namespace SnowyWindows
         public bool LanternsEnabled { get; set; }
         public bool BirdsEnabled { get; set; }
         public bool CursorTrailEnabled { get; set; }
-        public bool ShakeEnabled { get; set; }
+        public int WallpaperTheme { get; set; }         // 0: Orijinal, 1..5: Gömülü Kış Temaları, 6: Özel Fotoğraf
+        public string CustomWallpaperPath { get; set; }
+        public bool RememberWallpaper { get; set; }
         public float AudioLevel { get { return _audioLevelSmooth; } }
         public bool BlizzardMode { get; set; }
         public bool MultiMonitorEnabled { get; private set; }
@@ -2694,11 +2972,6 @@ namespace SnowyWindows
         private int _celebrationYear;
         private int _lastCelebratedYear;
         private int _lanternSpawnCooldown = 90;
-        private int _shakeVortexTimer;
-        private int _mouseShakeDir;
-        private int _mouseShakeCount;
-        private int _mouseShakeTimer;
-        private int _mouseShakeCooldown;
         private Point _lastTrailCursor;
         private bool _hasLastTrailCursor;
         private string _toastText = "";
@@ -2839,7 +3112,9 @@ namespace SnowyWindows
             LanternsEnabled = true;
             BirdsEnabled = true;
             CursorTrailEnabled = false;
-            ShakeEnabled = true;
+            WallpaperTheme = 0;
+            CustomWallpaperPath = "";
+            RememberWallpaper = true;
             BlizzardMode = false;
             ActiveSnowCount = 420;
             MaxPileHeight = 34f;
@@ -2900,6 +3175,8 @@ namespace SnowyWindows
                 SpawnChristmasTree(true);
             SpawnPenguin(true);
             EnsureWinterBirdsCount();
+            if (RememberWallpaper && WallpaperTheme > 0)
+                WallpaperManager.ApplyTheme(WallpaperTheme, CustomWallpaperPath);
             ApplyClickThroughStyle();
             _lastTickTime = _clock.Elapsed.TotalSeconds;
             _renderTimer.Start();
@@ -3548,45 +3825,37 @@ namespace SnowyWindows
             if (SoundEnabled) _audioSynth.PlayJingleBells();
         }
 
-        public void TriggerSnowglobeShake()
+        public void ApplyWallpaperTheme(int themeIndex, string customPath, bool showToast)
         {
-            _shakeVortexTimer = 95;
-            // Her pencerenin üstündeki karın bir kısmını havaya savur (kar küresi sarsıntısı!)
-            foreach (WindowSurface surf in _surfaces.Values)
+            WallpaperTheme = Math.Max(0, Math.Min(6, themeIndex));
+            if (themeIndex == 6 && !string.IsNullOrEmpty(customPath))
+                CustomWallpaperPath = customPath;
+
+            if (WallpaperTheme == 0)
             {
-                if (surf.Heights == null || surf.MaxH < 2f) continue;
-                int n = surf.Heights.Length;
-                int step = Math.Max(2, n / 28);
-                for (int i = 0; i < n; i += step)
-                {
-                    if (surf.Heights[i] > 1.8f)
-                    {
-                        float lifted = surf.Heights[i] * 0.34f;
-                        surf.Heights[i] -= lifted;
-                        SpawnChunk(
-                            surf.Left + i * WindowSurface.BinSize,
-                            surf.Top - surf.Heights[i] - 2f,
-                            (float)(_rng.NextDouble() * 9.0 - 4.5),
-                            -4.5f - (float)_rng.NextDouble() * 6.5f,
-                            2.2f + (float)_rng.NextDouble() * 2.4f,
-                            lifted * 0.6f,
-                            85 + _rng.Next(45),
-                            true,
-                            Color.White);
-                    }
-                }
+                WallpaperManager.RestoreOriginal();
+                if (showToast)
+                    ShowToast(IsEnglish ? "↩️ Restored original desktop wallpaper" : "↩️ Orijinal masaüstü arka planına dönüldü");
+                return;
             }
-            for (int i = 0; i < _snowmen.Count; i++)
-                _snowmen[i].TiltVel += (float)(_rng.NextDouble() * 14.0 - 7.0);
-            for (int i = 0; i < _trees.Count; i++)
-                _trees[i].WobbleVel += (float)(_rng.NextDouble() * 7.0 - 3.5);
-            for (int i = 0; i < _penguins.Count; i++)
+
+            if (WallpaperManager.ApplyTheme(WallpaperTheme, CustomWallpaperPath))
             {
-                _penguins[i].Vy = -5.2f;
-                _penguins[i].SurfaceHwnd = IntPtr.Zero;
+                if (showToast)
+                    ShowToast(IsEnglish ? "🖼️ Winter wallpaper applied (reverts on exit)" : "🖼️ Kış arka planı uygulandı (kapanınca eskiye döner)");
             }
-            if (SoundEnabled) _audioSynth.PlayJingleBells();
-            ShowToast(IsEnglish ? "🔮 Snowglobe Shaken!" : "🔮 Kar Küresi Sallandı!");
+            else if (showToast)
+            {
+                ShowToast(IsEnglish ? "⚠️ Could not apply wallpaper" : "⚠️ Arka plan uygulanamadı");
+            }
+        }
+
+        public void RestoreOriginalWallpaper(bool showToast)
+        {
+            WallpaperTheme = 0;
+            WallpaperManager.RestoreOriginal();
+            if (showToast)
+                ShowToast(IsEnglish ? "↩️ Restored original desktop wallpaper" : "↩️ Orijinal masaüstü arka planına dönüldü");
         }
 
         public void CaptureWinterPostcard()
@@ -3706,6 +3975,7 @@ namespace SnowyWindows
 
         public void ShutdownExtras()
         {
+            WallpaperManager.RestoreOriginal();
             if (RememberSnowmen)
             {
                 SnowmenStore.Save(_snowmen, Math.Max(1, _screenW));
@@ -5726,7 +5996,6 @@ namespace SnowyWindows
             _frameCount++;
             _time += (float)PhysicsStep;
             if (_toastTicks > 0) _toastTicks--;
-            if (_shakeVortexTimer > 0) _shakeVortexTimer--;
 
             // Doğal rüzgar: farklı hızlarda üst üste binen sinüslerle rüzgar hamleleri (gust)
             float gust = 0f;
@@ -5741,9 +6010,8 @@ namespace SnowyWindows
             float windVx = effNx * (BlizzardMode ? 8.8f : 6.8f);
             float windVy = WindNy * (BlizzardMode ? 3.8f : 2.1f) + (BlizzardMode ? 1.35f : 0f);
             int activeCount = GetActiveFlakeCount();
-            float vortexPower = _shakeVortexTimer > 0 ? (_shakeVortexTimer / 95f) : 0f;
 
-            // 1. Yağan Kar Taneleri (hafif taneler rüzgara çabuk uyar, türbülans + salınım + kar küresi girdabı)
+            // 1. Yağan Kar Taneleri (hafif taneler rüzgara çabuk uyar, türbülans + salınım)
             for (int i = 0; i < activeCount; i++)
             {
                 Snowflake f = _flakes[i];
@@ -5756,16 +6024,6 @@ namespace SnowyWindows
                 float follow = (f.Layer == 0) ? 0.20f : ((f.Layer == 1) ? 0.15f : 0.11f);
                 f.Vx = f.Vx * (1f - follow) + (windVx * f.SpeedMult + flutter + turb) * follow;
                 f.Vy = Math.Max(0.75f, 1.48f * f.SpeedMult + windVy + (float)Math.Sin(f.Phase * 0.5f) * 0.12f);
-
-                if (vortexPower > 0.01f)
-                {
-                    float vdx = f.X - _screenW * 0.5f;
-                    float vdy = f.Y - _screenH * 0.5f;
-                    float vdist = (float)Math.Sqrt(vdx * vdx + vdy * vdy) + 40f;
-                    // Saat yönünde dönen girdap + hafif yukarı kaldırma
-                    f.Vx += (-vdy / vdist) * 5.8f * vortexPower;
-                    f.Vy += (vdx / vdist) * 2.6f * vortexPower - 2.2f * vortexPower;
-                }
 
                 float nx = f.X + f.Vx;
                 if (nx < 0) nx += _screenW;
@@ -6406,7 +6664,7 @@ namespace SnowyWindows
             UpdateTreesPhysics();
             UpdateLanternsPhysics(windVx);
             UpdateWinterBirdsPhysics();
-            UpdateCursorTrailAndMouseShake();
+            UpdateCursorTrail();
             UpdateCountdownAndConfetti(windVx);
 
             // Gardırop veya Ağaç Süsleme penceresi açıkken hedef nesne silindiyse kapat
@@ -6700,7 +6958,7 @@ namespace SnowyWindows
             }
         }
 
-        private void UpdateCursorTrailAndMouseShake()
+        private void UpdateCursorTrail()
         {
             Point raw = Cursor.Position;
             Point cur = new Point(raw.X - _originX, raw.Y - _originY);
@@ -6711,7 +6969,7 @@ namespace SnowyWindows
                 int dy = cur.Y - _lastTrailCursor.Y;
                 float dist = (float)Math.Sqrt(dx * dx + dy * dy);
 
-                // 1. İmleç Kış Işıltısı (Cursor Magic Trail)
+                // İmleç Kış Işıltısı (Cursor Magic Trail)
                 if (CursorTrailEnabled && !PerformanceMode && dist > 6f)
                 {
                     int spawnN = dist > 28f ? 2 : 1;
@@ -6721,28 +6979,6 @@ namespace SnowyWindows
                             cur.X + (float)(_rng.NextDouble() * 10.0 - 5.0),
                             cur.Y + (float)(_rng.NextDouble() * 10.0 - 5.0),
                             false);
-                    }
-                }
-
-                // 2. Fareyi Hızla Sağa-Sola Sallayınca Otomatik Kar Küresi Sallama
-                if (_mouseShakeCooldown > 0) _mouseShakeCooldown--;
-                if (_mouseShakeTimer > 0) _mouseShakeTimer--;
-                else _mouseShakeCount = 0;
-
-                if (ShakeEnabled && _mouseShakeCooldown == 0 && Math.Abs(dx) > 42 && Math.Abs(dy) < 60)
-                {
-                    int dir = dx > 0 ? 1 : -1;
-                    if (dir != _mouseShakeDir)
-                    {
-                        _mouseShakeDir = dir;
-                        _mouseShakeCount++;
-                        _mouseShakeTimer = 26;
-                        if (_mouseShakeCount >= 4)
-                        {
-                            _mouseShakeCount = 0;
-                            _mouseShakeCooldown = 140;
-                            TriggerSnowglobeShake();
-                        }
                     }
                 }
             }
@@ -11925,7 +12161,6 @@ namespace SnowyWindows
         private readonly ModernButton _interactBtn;
         private readonly ModernButton _pauseBtn;
         private readonly ModernButton _clearBtn;
-        private readonly ModernButton _shakeQuickBtn;
         private readonly ModernButton _postcardQuickBtn;
 
         // Sağ Sütun 4 Sekme (Oyuncak / Sahne / Kutlama / Sistem)
@@ -11966,20 +12201,20 @@ namespace SnowyWindows
         private readonly ModernToggle _cursorTrailToggle;
         private readonly Label _toysHintLbl;
 
-        // Tab 2: Kutlama, Ses & Kartpostal
+        // Tab 2: Arka Plan, Kutlama & Ses
+        private readonly Label _wpCardHdr;
+        private readonly OptionChipSelector _wpChips;
+        private readonly ModernButton _wpCustomBtn;
+        private readonly ModernButton _wpRestoreBtn;
+        private readonly ModernToggle _wpRememberToggle;
         private readonly Label _celebCardHdr;
         private readonly ModernToggle _countdownToggle;
-        private readonly ModernToggle _shakeToggle;
         private readonly ModernButton _testCelebBtn;
-        private readonly ModernButton _shakeCardBtn;
         private readonly Label _audioCardHdr;
         private readonly ModernToggle _soundToggle;
         private readonly ModernToggle _audioReactiveToggle;
         private readonly Label _audioMeterLbl;
         private readonly Label _audioHintLbl;
-        private readonly Label _postcardCardHdr;
-        private readonly ModernButton _postcardBtn;
-        private readonly Label _postcardHintLbl;
 
         // Tab 3: Sistem & Kayıt
         private readonly Label _sysDisplayHdr;
@@ -11998,7 +12233,6 @@ namespace SnowyWindows
         private readonly MenuItem _trayShowItem;
         private readonly MenuItem _trayInteractItem;
         private readonly MenuItem _traySurpriseItem;
-        private readonly MenuItem _trayShakeItem;
         private readonly MenuItem _trayPostcardItem;
         private readonly MenuItem _trayPauseItem;
         private readonly MenuItem _trayClearItem;
@@ -12057,7 +12291,7 @@ namespace SnowyWindows
 
             Label verBadge = new Label
             {
-                Text = "v1.4",
+                Text = "v1.5",
                 Font = new Font("Consolas", 7.6f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(52, 211, 153),
                 BackColor = Color.FromArgb(18, 42, 46),
@@ -12272,13 +12506,7 @@ namespace SnowyWindows
             _clearBtn.Click += (s, e) => _overlay.ClearAllSnow();
             Controls.Add(_clearBtn);
 
-            _shakeQuickBtn = CreateModernButton(new Point(LX, 564), new Size(143, 32), Color.FromArgb(30, 41, 82));
-            _shakeQuickBtn.BorderColor = Color.FromArgb(129, 140, 248);
-            _shakeQuickBtn.ForeColor = Color.FromArgb(224, 231, 255);
-            _shakeQuickBtn.Click += (s, e) => _overlay.TriggerSnowglobeShake();
-            Controls.Add(_shakeQuickBtn);
-
-            _postcardQuickBtn = CreateModernButton(new Point(LX + 151, 564), new Size(143, 32), Color.FromArgb(17, 64, 72));
+            _postcardQuickBtn = CreateModernButton(new Point(LX, 564), new Size(LW, 32), Color.FromArgb(17, 64, 72));
             _postcardQuickBtn.BorderColor = Color.FromArgb(45, 212, 191);
             _postcardQuickBtn.ForeColor = Color.FromArgb(204, 251, 241);
             _postcardQuickBtn.Click += (s, e) => _overlay.CaptureWinterPostcard();
@@ -12482,32 +12710,71 @@ namespace SnowyWindows
             };
             tipCard.Controls.Add(_toysHintLbl);
 
-            // ---- TAB 2: KUTLAMA, SES & KARTPOSTAL ----
-            ModernCard celebCard = new ModernCard { Location = new Point(0, 0), Size = new Size(RW, 154) };
+            // ---- TAB 2: ARKA PLAN, KUTLAMA & SES ----
+            ModernCard wpCard = new ModernCard { Location = new Point(0, 0), Size = new Size(RW, 174) };
+            _tabPanels[2].Controls.Add(wpCard);
+
+            _wpCardHdr = CreateCardHeader(14, 9);
+            wpCard.Controls.Add(_wpCardHdr);
+
+            _wpChips = new OptionChipSelector
+            {
+                Location = new Point(12, 33),
+                Size = new Size(RW - 24, 68)
+            };
+            _wpChips.SelectedIndexChanged += idx =>
+            {
+                _overlay.ApplyWallpaperTheme(idx, _overlay.CustomWallpaperPath, true);
+            };
+            wpCard.Controls.Add(_wpChips);
+
+            _wpCustomBtn = CreateModernButton(new Point(12, 108), new Size(146, 28), Color.FromArgb(24, 44, 72));
+            _wpCustomBtn.BorderColor = Color.FromArgb(56, 189, 248);
+            _wpCustomBtn.ForeColor = Color.FromArgb(224, 242, 254);
+            _wpCustomBtn.Click += (s, e) =>
+            {
+                using (OpenFileDialog ofd = new OpenFileDialog())
+                {
+                    ofd.Title = Tr("Kış Masaüstü Arka Planı Seç", "Choose Winter Desktop Wallpaper");
+                    ofd.Filter = Tr("Resim Dosyaları (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp", "Images (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp");
+                    if (ofd.ShowDialog(this) == DialogResult.OK)
+                    {
+                        _wpChips.SelectedIndex = -1;
+                        _overlay.ApplyWallpaperTheme(6, ofd.FileName, true);
+                    }
+                }
+            };
+            wpCard.Controls.Add(_wpCustomBtn);
+
+            _wpRestoreBtn = CreateModernButton(new Point(166, 108), new Size(146, 28), Color.FromArgb(44, 28, 38));
+            _wpRestoreBtn.BorderColor = Color.FromArgb(110, 52, 74);
+            _wpRestoreBtn.ForeColor = Color.FromArgb(254, 205, 211);
+            _wpRestoreBtn.Click += (s, e) =>
+            {
+                _wpChips.SelectedIndex = 0;
+                _overlay.RestoreOriginalWallpaper(true);
+            };
+            wpCard.Controls.Add(_wpRestoreBtn);
+
+            _wpRememberToggle = CreateCardToggle(wpCard, 142, RW, _overlay.RememberWallpaper);
+            _wpRememberToggle.CheckedChanged += (s, e) => { _overlay.RememberWallpaper = _wpRememberToggle.Checked; };
+
+            ModernCard celebCard = new ModernCard { Location = new Point(0, 184), Size = new Size(RW, 106) };
             _tabPanels[2].Controls.Add(celebCard);
 
-            _celebCardHdr = CreateCardHeader(14, 10);
+            _celebCardHdr = CreateCardHeader(14, 9);
             celebCard.Controls.Add(_celebCardHdr);
 
-            _countdownToggle = CreateCardToggle(celebCard, 38, RW, _overlay.CountdownEnabled);
+            _countdownToggle = CreateCardToggle(celebCard, 35, RW, _overlay.CountdownEnabled);
             _countdownToggle.CheckedChanged += (s, e) => { _overlay.CountdownEnabled = _countdownToggle.Checked; };
 
-            _shakeToggle = CreateCardToggle(celebCard, 70, RW, _overlay.ShakeEnabled);
-            _shakeToggle.CheckedChanged += (s, e) => { _overlay.ShakeEnabled = _shakeToggle.Checked; };
-
-            _testCelebBtn = CreateModernButton(new Point(12, 106), new Size(146, 32), Color.FromArgb(113, 63, 18));
+            _testCelebBtn = CreateModernButton(new Point(12, 66), new Size(RW - 24, 30), Color.FromArgb(113, 63, 18));
             _testCelebBtn.BorderColor = Color.FromArgb(250, 204, 21);
             _testCelebBtn.ForeColor = Color.FromArgb(254, 240, 138);
             _testCelebBtn.Click += (s, e) => _overlay.TriggerMidnightCelebration();
             celebCard.Controls.Add(_testCelebBtn);
 
-            _shakeCardBtn = CreateModernButton(new Point(166, 106), new Size(146, 32), Color.FromArgb(30, 41, 82));
-            _shakeCardBtn.BorderColor = Color.FromArgb(129, 140, 248);
-            _shakeCardBtn.ForeColor = Color.FromArgb(224, 231, 255);
-            _shakeCardBtn.Click += (s, e) => _overlay.TriggerSnowglobeShake();
-            celebCard.Controls.Add(_shakeCardBtn);
-
-            ModernCard audioCard = new ModernCard { Location = new Point(0, 166), Size = new Size(RW, 180) };
+            ModernCard audioCard = new ModernCard { Location = new Point(0, 300), Size = new Size(RW, 182) };
             _tabPanels[2].Controls.Add(audioCard);
 
             _audioCardHdr = CreateCardHeader(14, 10);
@@ -12539,34 +12806,12 @@ namespace SnowyWindows
             _audioHintLbl = new Label
             {
                 Location = new Point(14, 142),
-                Size = new Size(RW - 28, 28),
+                Size = new Size(RW - 28, 30),
                 Font = new Font("Segoe UI", 7.2f),
                 ForeColor = Color.FromArgb(125, 211, 252),
                 BackColor = Color.FromArgb(20, 30, 48)
             };
             audioCard.Controls.Add(_audioHintLbl);
-
-            ModernCard postcardCard = new ModernCard { Location = new Point(0, 358), Size = new Size(RW, 124) };
-            _tabPanels[2].Controls.Add(postcardCard);
-
-            _postcardCardHdr = CreateCardHeader(14, 10);
-            postcardCard.Controls.Add(_postcardCardHdr);
-
-            _postcardBtn = CreateModernButton(new Point(12, 38), new Size(RW - 24, 34), Color.FromArgb(17, 64, 72));
-            _postcardBtn.BorderColor = Color.FromArgb(45, 212, 191);
-            _postcardBtn.ForeColor = Color.FromArgb(204, 251, 241);
-            _postcardBtn.Click += (s, e) => _overlay.CaptureWinterPostcard();
-            postcardCard.Controls.Add(_postcardBtn);
-
-            _postcardHintLbl = new Label
-            {
-                Location = new Point(14, 78),
-                Size = new Size(RW - 28, 34),
-                Font = new Font("Segoe UI", 7.4f),
-                ForeColor = Color.FromArgb(148, 163, 184),
-                BackColor = Color.FromArgb(20, 30, 48)
-            };
-            postcardCard.Controls.Add(_postcardHintLbl);
 
             // ---- TAB 3: SİSTEM & KAYIT ----
             ModernCard displayCard = new ModernCard { Location = new Point(0, 0), Size = new Size(RW, 148) };
@@ -12653,7 +12898,6 @@ namespace SnowyWindows
             _trayShowItem = new MenuItem("", (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); });
             _trayInteractItem = new MenuItem("", (s, e) => _overlay.ToggleInteractiveMode());
             _traySurpriseItem = new MenuItem("", (s, e) => _overlay.TriggerSurpriseShow());
-            _trayShakeItem = new MenuItem("", (s, e) => _overlay.TriggerSnowglobeShake());
             _trayPostcardItem = new MenuItem("", (s, e) => _overlay.CaptureWinterPostcard());
             _trayPauseItem = new MenuItem("", (s, e) => _overlay.TogglePause());
             _trayClearItem = new MenuItem("", (s, e) => _overlay.ClearAllSnow());
@@ -12661,7 +12905,6 @@ namespace SnowyWindows
             trayMenu.MenuItems.Add(_trayShowItem);
             trayMenu.MenuItems.Add(_trayInteractItem);
             trayMenu.MenuItems.Add(_traySurpriseItem);
-            trayMenu.MenuItems.Add(_trayShakeItem);
             trayMenu.MenuItems.Add(_trayPostcardItem);
             trayMenu.MenuItems.Add(_trayPauseItem);
             trayMenu.MenuItems.Add(_trayClearItem);
@@ -12671,6 +12914,7 @@ namespace SnowyWindows
             _trayIcon.DoubleClick += (s, e) => { Show(); WindowState = FormWindowState.Normal; Activate(); };
 
             ApplyLanguage();
+            _wpChips.SelectedIndex = (_overlay.WallpaperTheme >= 0 && _overlay.WallpaperTheme <= 5) ? _overlay.WallpaperTheme : -1;
             UpdateWindStatus(_overlay.WindNx, _overlay.WindNy);
 
             FormClosing += (s, e) =>
@@ -12822,13 +13066,12 @@ namespace SnowyWindows
             _normalBtn.Text = Tr("❄ Normal", "❄ Normal");
             _blizzardBtn.Text = Tr("🌪 Tipi", "🌪 Blizzard");
             _clearBtn.Text = Tr("🧹 Temizle (F9)", "🧹 Clear (F9)");
-            _shakeQuickBtn.Text = Tr("🔮 Kar Küresi Salla", "🔮 Shake Globe");
-            _postcardQuickBtn.Text = Tr("📸 Kartpostal (F10)", "📸 Postcard (F10)");
+            _postcardQuickBtn.Text = Tr("📸 Kış Kartpostalı Çek (F10)", "📸 Capture Winter Postcard (F10)");
 
             _rightTabs.SetTabs(new string[] {
                 Tr("⛄ Oyuncak", "⛄ Toys"),
                 Tr("🌌 Sahne", "🌌 Scene"),
-                Tr("🎉 Kutlama", "🎉 Party"),
+                Tr("🖼️ Tema", "🖼️ Theme"),
                 Tr("⚙️ Sistem", "⚙️ System")
             });
 
@@ -12873,22 +13116,29 @@ namespace SnowyWindows
                 "💡 İpucu: Kış kuşları pencerelere ve yılbaşı ağacının dallarına konar! F8 modunda dilek fenerlerine, hediyelere veya trene tıklayabilirsiniz.",
                 "💡 Tip: Winter birds perch on windows and Christmas tree branches! In F8 mode, click wish lanterns, gifts, or the Polar Express.");
 
-            // Tab 2: Kutlama, Ses & Kartpostal
-            _celebCardHdr.Text = Tr("⏳ Yılbaşı Geri Sayımı & Kar Küresi", "⏳ New Year Countdown & Globe");
+            // Tab 2: Arka Plan, Kutlama & Ses
+            _wpCardHdr.Text = Tr("🖼️ Masaüstü Arka Planı (Çıkınca Eskiye Döner)", "🖼️ Desktop Wallpaper (Reverts on Exit)");
+            _wpChips.SetItems(new string[] {
+                Tr("↩️ Orijinal", "↩️ Original"),
+                Tr("🌌 Kutup", "🌌 Arctic"),
+                Tr("🌕 Dolunay", "🌕 Moon"),
+                Tr("❄️ Fiyort", "❄️ Fjord"),
+                Tr("✨ Bokeh", "✨ Bokeh"),
+                Tr("🏡 Dağ Evi", "🏡 Cabin")
+            }, 3);
+            _wpCustomBtn.Text = Tr("📂 Özel Fotoğraf", "📂 Custom Image");
+            _wpRestoreBtn.Text = Tr("↩️ Orijinale Dön", "↩️ Restore Original");
+            _wpRememberToggle.Text = Tr("🔄 Açılışta Seçili Temayı Hatırla", "🔄 Remember Theme on Startup");
+
+            _celebCardHdr.Text = Tr("⏳ Yılbaşı Geri Sayımı & Kutlama", "⏳ New Year Countdown & Party");
             _countdownToggle.Text = Tr("⏳ Yeni Yıl Geri Sayım Sayacı", "⏳ New Year Countdown Widget");
-            _shakeToggle.Text = Tr("🔮 Fare Sallayınca Kar Küresi Salla", "🔮 Auto-Shake Globe with Mouse");
-            _testCelebBtn.Text = Tr("🎉 Kutlamayı Test Et", "🎉 Test Celebration");
-            _shakeCardBtn.Text = Tr("🔮 Şimdi Salla", "🔮 Shake Now");
+            _testCelebBtn.Text = Tr("🎉 Gece Yarısı Kutlamasını Test Et", "🎉 Test Midnight Celebration");
 
             _audioCardHdr.Text = Tr("🎧 Ses & Müzik Etkileşimi", "🎧 Sound & Music Sync");
             _soundToggle.Text = Tr("🔊 Kış Ses Efektleri", "🔊 Winter Sound Effects");
             _audioReactiveToggle.Text = Tr("🎵 Müziğe Duyarlı Mod (WASAPI)", "🎵 Music Reactive (WASAPI)");
             _audioMeterLbl.Text = Tr("Canlı Sistem Ses Seviyesi", "Live System Audio Level");
             _audioHintLbl.Text = Tr("Spotify / YouTube ritmiyle ağaç ışıkları, aurora ve kardan adamlar tepki verir.", "Tree lights, aurora, penguins & snowmen pulse with Spotify / YouTube music.");
-
-            _postcardCardHdr.Text = Tr("📸 Masaüstü Kış Kartpostalı", "📸 Desktop Winter Postcard");
-            _postcardBtn.Text = Tr("📸 Şimdi Kartpostal Çek (F10)", "📸 Capture Winter Postcard (F10)");
-            _postcardHintLbl.Text = Tr("Karlı masaüstünüzü buz çerçevesiyle PNG olarak Masaüstüne kaydeder.", "Saves your snowy desktop with a frost border frame directly to your Desktop.");
 
             // Tab 3: Sistem & Kayıt
             _sysDisplayHdr.Text = Tr("🖥️ Ekran & Performans", "🖥️ Display & Performance");
@@ -12902,14 +13152,13 @@ namespace SnowyWindows
 
             _shortcutsHdr.Text = Tr("⌨️ Hızlı Kısayollar", "⌨️ Quick Shortcuts");
             _shortcutsBody.Text = Tr(
-                "• F8 : Etkileşim / Geçirgen Mod\n• F6 : Sürpriz Havai Fişek & Noel Baba\n• F10 : Kış Kartpostalı Çek (PNG)\n• F7 : Duraklat   •   F9 : Tümünü Temizle\n• Sağ Tık ⛄ / 🎄 : Gardırop / Ağaç Süsle\n• Orta Tık : Havai Fişek   •   Fare Salla : Kar Küresi",
-                "• F8 : Interactive / Click-Through Mode\n• F6 : Surprise Fireworks & Santa Show\n• F10 : Capture Winter Postcard (PNG)\n• F7 : Pause   •   F9 : Clear All\n• Right-Click ⛄ / 🎄 : Wardrobe / Tree Studio\n• Middle-Click : Firework   •   Wiggle Mouse : Shake Globe");
+                "• F8 : Etkileşim / Geçirgen Mod\n• F6 : Sürpriz Havai Fişek & Noel Baba\n• F10 : Kış Kartpostalı Çek (PNG)\n• F7 : Duraklat   •   F9 : Tümünü Temizle\n• Sağ Tık ⛄ / 🎄 : Gardırop / Ağaç Süsle\n• Orta Tık : Havai Fişek   •   Kapanınca Arka Plan Eskiye Döner",
+                "• F8 : Interactive / Click-Through Mode\n• F6 : Surprise Fireworks & Santa Show\n• F10 : Capture Winter Postcard (PNG)\n• F7 : Pause   •   F9 : Clear All\n• Right-Click ⛄ / 🎄 : Wardrobe / Tree Studio\n• Middle-Click : Firework   •   Wallpaper Auto-Restores on Exit");
 
             // Tray
             _trayShowItem.Text = Tr("Kontrol Panelini Göster", "Show Control Panel");
             _trayInteractItem.Text = Tr("Etkileşim Modu (F8)", "Interactive Mode (F8)");
             _traySurpriseItem.Text = Tr("Sürpriz Gösteri! (F6)", "Surprise Show! (F6)");
-            _trayShakeItem.Text = Tr("Kar Küresi Salla", "Shake Snowglobe");
             _trayPostcardItem.Text = Tr("Kış Kartpostalı Çek (F10)", "Capture Postcard (F10)");
             _trayPauseItem.Text = Tr("Duraklat / Devam (F7)", "Pause / Resume (F7)");
             _trayClearItem.Text = Tr("Karları Temizle (F9)", "Clear Snow (F9)");
@@ -13066,6 +13315,12 @@ namespace SnowyWindows
                     if (eq <= 0) continue;
                     string key = lines[i].Substring(0, eq).Trim();
                     string val = lines[i].Substring(eq + 1).Trim();
+                    if (key == "customWallpaperB64")
+                    {
+                        if (!string.IsNullOrEmpty(val))
+                            o.CustomWallpaperPath = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(val));
+                        continue;
+                    }
                     float f;
                     if (!float.TryParse(val, System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out f))
@@ -13095,7 +13350,8 @@ namespace SnowyWindows
                         case "lanterns": o.LanternsEnabled = f > 0.5f; break;
                         case "birds": o.BirdsEnabled = f > 0.5f; break;
                         case "cursorTrail": o.CursorTrailEnabled = f > 0.5f; break;
-                        case "shake": o.ShakeEnabled = f > 0.5f; break;
+                        case "wallpaperTheme": o.WallpaperTheme = (int)Clamp(f, 0f, 6f); break;
+                        case "rememberWallpaper": o.RememberWallpaper = f > 0.5f; break;
                         case "blizzard": o.BlizzardMode = f > 0.5f; break;
                         case "multiMonitor": if (f > 0.5f) o.SetMultiMonitorMode(true); break;
                         case "autoPause": o.AutoPauseOnFullscreen = f > 0.5f; break;
@@ -13114,6 +13370,9 @@ namespace SnowyWindows
                 string path = FilePath;
                 System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
                 System.Globalization.CultureInfo ci = System.Globalization.CultureInfo.InvariantCulture;
+                string customWpB64 = string.IsNullOrEmpty(o.CustomWallpaperPath)
+                    ? ""
+                    : Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(o.CustomWallpaperPath));
                 string[] lines =
                 {
                     "density=" + o.ActiveSnowCount.ToString(ci),
@@ -13138,7 +13397,9 @@ namespace SnowyWindows
                     "lanterns=" + (o.LanternsEnabled ? "1" : "0"),
                     "birds=" + (o.BirdsEnabled ? "1" : "0"),
                     "cursorTrail=" + (o.CursorTrailEnabled ? "1" : "0"),
-                    "shake=" + (o.ShakeEnabled ? "1" : "0"),
+                    "wallpaperTheme=" + o.WallpaperTheme.ToString(ci),
+                    "rememberWallpaper=" + (o.RememberWallpaper ? "1" : "0"),
+                    "customWallpaperB64=" + customWpB64,
                     "blizzard=" + (o.BlizzardMode ? "1" : "0"),
                     "multiMonitor=" + (o.MultiMonitorEnabled ? "1" : "0"),
                     "autoPause=" + (o.AutoPauseOnFullscreen ? "1" : "0"),
@@ -13523,6 +13784,14 @@ namespace SnowyWindows
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
+            Application.ApplicationExit += (s, e) => WallpaperManager.RestoreOriginal();
+            AppDomain.CurrentDomain.ProcessExit += (s, e) => WallpaperManager.RestoreOriginal();
+            try
+            {
+                Microsoft.Win32.SystemEvents.SessionEnding += (s, e) => WallpaperManager.RestoreOriginal();
+            }
+            catch { }
+
             SnowOverlayForm overlay = new SnowOverlayForm();
             SettingsStore.Load(overlay);
             ControlPanelForm panel = new ControlPanelForm(overlay);
@@ -13532,7 +13801,14 @@ namespace SnowyWindows
             overlay.ControlPanelHwnd = panel.Handle;
             overlay.StartSimulation();
 
-            Application.Run(panel);
+            try
+            {
+                Application.Run(panel);
+            }
+            finally
+            {
+                WallpaperManager.RestoreOriginal();
+            }
         }
     }
 }

@@ -33,8 +33,15 @@ jobs:
             throw "Windows .NET Framework 4.x csc.exe not found."
           }
 
-          Write-Host "Pass 1: Compiling SnowyWindows.exe with $csc"
-          & $csc /nologo /target:winexe /optimize+ /r:System.dll,System.Drawing.dll,System.Windows.Forms.dll /out:SnowyWindows.exe SnowyWindows.cs
+          $resArgs = @()
+          if (Test-Path "wallpapers") {
+            Get-ChildItem -Path "wallpapers" -Filter "*.jpg" | ForEach-Object {
+              $resArgs += "/resource:$($_.FullName),$($_.Name)"
+            }
+          }
+
+          Write-Host "Pass 1: Compiling SnowyWindows.exe with $csc ($($resArgs.Count) wallpaper resources)"
+          & $csc /nologo /target:winexe /optimize+ @resArgs /r:System.dll,System.Drawing.dll,System.Windows.Forms.dll /out:SnowyWindows.exe SnowyWindows.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           Write-Host "Pass 2: Generating SnowyIcon.ico..."
@@ -43,8 +50,8 @@ jobs:
             throw "Failed to generate SnowyIcon.ico (exit code: $($proc.ExitCode))"
           }
 
-          Write-Host "Pass 3: Recompiling SnowyWindows.exe with embedded SnowyIcon.ico..."
-          & $csc /nologo /target:winexe /optimize+ /win32icon:SnowyIcon.ico /r:System.dll,System.Drawing.dll,System.Windows.Forms.dll /out:SnowyWindows.exe SnowyWindows.cs
+          Write-Host "Pass 3: Recompiling SnowyWindows.exe with embedded SnowyIcon.ico and wallpapers..."
+          & $csc /nologo /target:winexe /optimize+ /win32icon:SnowyIcon.ico @resArgs /r:System.dll,System.Drawing.dll,System.Windows.Forms.dll /out:SnowyWindows.exe SnowyWindows.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           Get-Item SnowyWindows.exe | Select-Object Name, Length
