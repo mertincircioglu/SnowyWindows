@@ -3026,6 +3026,29 @@ namespace SnowyWindows
 
         // Sürpriz Sistemi: Kuzey Işıkları (Aurora Borealis), Kayan Yıldızlar & Havai Fişek Gösterisi
         private float _auroraSurge;
+        private const int AuroraBufW = 160;
+        private const int AuroraBufH = 48;
+        private readonly object _auroraLock = new object();
+        private readonly int[] _auroraSmallBuf = new int[AuroraBufW * AuroraBufH];
+        private readonly float[] _auroraRowFade = new float[AuroraBufH];
+        private readonly float[] _auroraWaveTop0 = new float[AuroraBufW];
+        private readonly float[] _auroraWaveThick0 = new float[AuroraBufW];
+        private readonly float[] _auroraWaveCurtain0 = new float[AuroraBufW];
+        private readonly float[] _auroraWaveTop1 = new float[AuroraBufW];
+        private readonly float[] _auroraWaveThick1 = new float[AuroraBufW];
+        private readonly float[] _auroraWaveCurtain1 = new float[AuroraBufW];
+        private bool _auroraRowFadeInit;
+        private int _auroraW;
+        private int _auroraH;
+        private int[] _auroraFront;
+        private int[] _auroraSpare;
+        private int[] _auroraTmpHoriz;
+        private int[] _auroraX0Map;
+        private int[] _auroraX1Map;
+        private int[] _auroraXFracMap;
+        private int _auroraWorking;
+        private bool _auroraHasFrame;
+        private bool _auroraDisposed;
         private int _shootingStarCooldown;
         private readonly ShootingStar[] _shootingStars = new ShootingStar[4];
         private readonly FireworkRocket[] _rockets = new FireworkRocket[16];
@@ -3360,8 +3383,9 @@ namespace SnowyWindows
             _surfaceBitmap = new Bitmap(_screenW, _screenH, _screenW * 4, PixelFormat.Format32bppPArgb, _dibBits);
             _surfaceGraphics = Graphics.FromImage(_surfaceBitmap);
             _surfaceGraphics.SmoothingMode = _performanceMode ? SmoothingMode.HighSpeed : SmoothingMode.AntiAlias;
-            _surfaceGraphics.CompositingQuality = CompositingQuality.HighQuality;
-            _surfaceGraphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            _surfaceGraphics.CompositingQuality = CompositingQuality.HighSpeed;
+            _surfaceGraphics.InterpolationMode = InterpolationMode.Bilinear;
+            _surfaceGraphics.PixelOffsetMode = PixelOffsetMode.Half;
         }
 
         private void InitParticles()
@@ -8936,58 +8960,274 @@ namespace SnowyWindows
             g.Restore(st);
         }
 
+        private void EnsureAuroraBuffers(int w, int h)
+        {
+            if (!_auroraRowFadeInit)
+            {
+                for (int y = 0; y < AuroraBufH; y++)
+                {
+                    float v = (y + 0.5f) / AuroraBufH;
+                    float s = (float)Math.Sin(v * Math.PI);
+                    _auroraRowFade[y] = s * s; // Üst ve alt kenarda sıfıra eriyen ipeksi çan eğrisi
+                }
+                _auroraRowFadeInit = true;
+            }
+
+            if (_auroraW == w && _auroraH == h && _auroraTmpHoriz != null && _auroraX0Map != null)
+                return;
+
+            int[] tmpHoriz = new int[w * AuroraBufH];
+            int[] x0Map = new int[w];
+            int[] x1Map = new int[w];
+            int[] xFracMap = new int[w];
+            float scaleX = (float)(AuroraBufW - 1) / Math.Max(1, w - 1);
+            for (int dx = 0; dx < w; dx++)
+            {
+                float fx = dx * scaleX;
+                int ix = (int)fx;
+                x0Map[dx] = ix;
+                x1Map[dx] = (ix + 1 < AuroraBufW) ? (ix + 1) : (AuroraBufW - 1);
+                xFracMap[dx] = (int)((fx - ix) * 256f + 0.5f);
+            }
+
+            lock (_auroraLock)
+            {
+                _auroraW = w;
+                _auroraH = h;
+                _auroraFront = null;
+                _auroraSpare = new int[w * h];
+                _auroraTmpHoriz = tmpHoriz;
+                _auroraX0Map = x0Map;
+                _auroraX1Map = x1Map;
+                _auroraXFracMap = xFracMap;
+                _auroraHasFrame = false;
+            }
+        }
+
+        private void FillSilkyAuroraPixels(float time, float surgeBoost)
+        {
+            Array.Clear(_auroraSmallBuf, 0, _auroraSmallBuf.Length);
+
+            float phase0 = time * 0.34f;
+            float phase1 = -time * 0.26f + 1.9f;
+
+            for (int x = 0; x < AuroraBufW; x++)
+            {
+                float t = (float)x / (AuroraBufW - 1);
+                float edge = (float)Math.Sin(t * Math.PI);
+                edge = edge * (0.35f + 0.65f * edge);
+
+                float w10 = (float)(Math.Sin(t * 4.8f + phase0) * 0.55 + Math.Sin(t * 10.2f - phase0 * 0.65f) * 0.45);
+                float w20 = (float)(Math.Cos(t * 6.2f - phase0 * 0.8f) * 0.5 + 0.5);
+                float ray0 = (float)(0.72 + 0.28 * Math.Sin(t * 27.0f + phase0 * 2.1f) * Math.Cos(t * 13.5f - phase0 * 1.4f));
+                _auroraWaveTop0[x] = 0.04f + (w10 * 0.5f + 0.5f) * 0.18f;
+                _auroraWaveThick0[x] = Math.Max(0.22f, (0.38f + 0.44f * w20) * (0.35f + 0.65f * edge));
+                _auroraWaveCurtain0[x] = edge * ray0;
+
+                float w11 = (float)(Math.Sin(t * 6.2f + phase1) * 0.55 + Math.Sin(t * 8.5f - phase1 * 0.65f) * 0.45);
+                float w21 = (float)(Math.Cos(t * 7.6f - phase1 * 0.8f) * 0.5 + 0.5);
+                float ray1 = (float)(0.74 + 0.26 * Math.Sin(t * 23.0f - phase1 * 1.9f) * Math.Cos(t * 11.0f + phase1 * 1.3f));
+                _auroraWaveTop1[x] = 0.09f + (w11 * 0.5f + 0.5f) * 0.20f;
+                _auroraWaveThick1[x] = Math.Max(0.22f, (0.36f + 0.44f * w21) * (0.35f + 0.65f * edge));
+                _auroraWaveCurtain1[x] = edge * ray1;
+            }
+
+            float baseA0 = Math.Min(165f, 96f * surgeBoost);
+            float baseA1 = Math.Min(140f, 72f * surgeBoost);
+
+            for (int y = 0; y < AuroraBufH; y++)
+            {
+                float vy = (y + 0.5f) / AuroraBufH;
+                float globalFade = _auroraRowFade[y];
+                int rowOff = y * AuroraBufW;
+
+                for (int x = 0; x < AuroraBufW; x++)
+                {
+                    float rSum = 0f, gSum = 0f, bSum = 0f, aSum = 0f;
+
+                    // Katman 0: Zümrüt -> Turkuaz ipeksi perde
+                    float u0 = (vy - _auroraWaveTop0[x]) / _auroraWaveThick0[x];
+                    if (u0 > 0f && u0 < 1f)
+                    {
+                        float s0 = (float)Math.Sin(u0 * Math.PI);
+                        float intensity0 = s0 * s0 * globalFade * _auroraWaveCurtain0[x];
+                        float a0 = (baseA0 * intensity0) / 255f;
+                        if (a0 > 0.002f)
+                        {
+                            float r0 = 18f + 38f * u0;
+                            float g0 = 220f - 28f * u0;
+                            float b0 = 152f + 98f * u0;
+                            rSum += r0 * a0;
+                            gSum += g0 * a0;
+                            bSum += b0 * a0;
+                            aSum += a0;
+                        }
+                    }
+
+                    // Katman 1: Çivit -> Mor -> Eflatun ipeksi perde
+                    float u1 = (vy - _auroraWaveTop1[x]) / _auroraWaveThick1[x];
+                    if (u1 > 0f && u1 < 1f)
+                    {
+                        float s1 = (float)Math.Sin(u1 * Math.PI);
+                        float intensity1 = s1 * s1 * globalFade * _auroraWaveCurtain1[x];
+                        float a1 = (baseA1 * intensity1) / 255f;
+                        if (a1 > 0.002f)
+                        {
+                            float r1 = 115f + 115f * u1;
+                            float g1 = 92f + 26f * u1;
+                            float b1 = 244f + 8f * u1;
+                            float invA = 1f - aSum;
+                            rSum += r1 * a1 * invA;
+                            gSum += g1 * a1 * invA;
+                            bSum += b1 * a1 * invA;
+                            aSum += a1 * invA;
+                        }
+                    }
+
+                    if (aSum > 0.002f)
+                    {
+                        int ai = (int)(aSum * 255f + 0.5f);
+                        if (ai > 255) ai = 255;
+                        int ri = (int)(rSum + 0.5f); if (ri > ai) ri = ai;
+                        int gi = (int)(gSum + 0.5f); if (gi > ai) gi = ai;
+                        int bi = (int)(bSum + 0.5f); if (bi > ai) bi = ai;
+                        _auroraSmallBuf[rowOff + x] = (ai << 24) | (ri << 16) | (gi << 8) | bi;
+                    }
+                }
+            }
+        }
+
+        private static void BilinearUpscaleAuroraSwar(
+            int[] src, int[] tmpHoriz, int[] dst, int dstW, int dstH,
+            int[] x0Map, int[] x1Map, int[] xFracMap)
+        {
+            // Geçiş 1: Yatay çift-doğrusal büyütme (48 satır x dstW sütun)
+            for (int sy = 0; sy < AuroraBufH; sy++)
+            {
+                int sOff = sy * AuroraBufW;
+                int tOff = sy * dstW;
+                for (int dx = 0; dx < dstW; dx++)
+                {
+                    int c0 = src[sOff + x0Map[dx]];
+                    int c1 = src[sOff + x1Map[dx]];
+                    if (c0 == 0 && c1 == 0)
+                    {
+                        tmpHoriz[tOff + dx] = 0;
+                        continue;
+                    }
+                    uint w = (uint)xFracMap[dx];
+                    uint iw = 256u - w;
+                    uint rb = ((((uint)c0 & 0x00FF00FFu) * iw + ((uint)c1 & 0x00FF00FFu) * w) >> 8) & 0x00FF00FFu;
+                    uint ag = (((((uint)c0 >> 8) & 0x00FF00FFu) * iw) + ((((uint)c1 >> 8) & 0x00FF00FFu) * w)) & 0xFF00FF00u;
+                    tmpHoriz[tOff + dx] = (int)(rb | ag);
+                }
+            }
+
+            // Geçiş 2: Dikey çift-doğrusal büyütme (dstH satır x dstW sütun)
+            float scaleY = (float)(AuroraBufH - 1) / Math.Max(1, dstH - 1);
+            for (int dy = 0; dy < dstH; dy++)
+            {
+                float fy = dy * scaleY;
+                int sy0 = (int)fy;
+                int sy1 = sy0 + 1;
+                if (sy1 >= AuroraBufH) sy1 = AuroraBufH - 1;
+                uint wy = (uint)(int)((fy - sy0) * 256f + 0.5f);
+                uint iwy = 256u - wy;
+                int tOff0 = sy0 * dstW;
+                int tOff1 = sy1 * dstW;
+                int dOff = dy * dstW;
+
+                for (int dx = 0; dx < dstW; dx++)
+                {
+                    int c0 = tmpHoriz[tOff0 + dx];
+                    int c1 = tmpHoriz[tOff1 + dx];
+                    if (c0 == 0 && c1 == 0)
+                    {
+                        dst[dOff + dx] = 0;
+                        continue;
+                    }
+                    uint rb = ((((uint)c0 & 0x00FF00FFu) * iwy + ((uint)c1 & 0x00FF00FFu) * wy) >> 8) & 0x00FF00FFu;
+                    uint ag = (((((uint)c0 >> 8) & 0x00FF00FFu) * iwy) + ((((uint)c1 >> 8) & 0x00FF00FFu) * wy)) & 0xFF00FF00u;
+                    dst[dOff + dx] = (int)(rb | ag);
+                }
+            }
+        }
+
         private void DrawAuroraBorealis(Graphics g)
         {
-            float baseH = Math.Min(250f, _screenH * 0.25f);
-            float audioBoost = AudioReactiveEnabled ? (_audioLevelSmooth * 0.95f + _audioBeat * 0.45f) : 0f;
-            float surgeBoost = 1.0f + _auroraSurge * 0.90f + audioBoost;
-            const int segs = 22;
+            int destW = _screenW;
+            int destH = (int)Math.Min(260f, _screenH * 0.27f);
+            if (destH < 20 || destW < 20 || _dibBits == IntPtr.Zero) return;
 
-            // 2 katmanlı pürüzsüz, dikişsiz Kuzey Işığı perdesi (Zümrüt-Buz & İndigo-Mor)
-            for (int layer = 0; layer < 2; layer++)
+            EnsureAuroraBuffers(destW, destH);
+
+            // Kuzey ışıkları yavaş süzüldüğü için hesaplama ve büyütmeyi 3 karede bir (20 Hz)
+            // arka plan iş parçacığında (ThreadPool) yap; 60 FPS ana çizim döngüsü ASLA beklemesin!
+            if ((!_auroraHasFrame || (_frameCount % 3) == 0) &&
+                System.Threading.Interlocked.CompareExchange(ref _auroraWorking, 1, 0) == 0)
             {
-                PointF[] topPts = new PointF[segs + 1];
-                PointF[] botPts = new PointF[segs + 1];
-                float phase = (layer == 0) ? _time * 0.34f : (-_time * 0.26f + 1.9f);
-                float freq1 = (layer == 0) ? 4.8f : 6.2f;
-                float freq2 = (layer == 0) ? 10.2f : 8.5f;
-
-                for (int i = 0; i <= segs; i++)
+                int[] workBuf;
+                int[] tmpHoriz;
+                int[] x0Map;
+                int[] x1Map;
+                int[] xFracMap;
+                int jobW;
+                int jobH;
+                lock (_auroraLock)
                 {
-                    float t = (float)i / segs;
-                    float x = t * _screenW;
-                    float edge = (float)Math.Sin(t * Math.PI);
-                    float w1 = (float)(Math.Sin(t * freq1 + phase) * 0.55 + Math.Sin(t * freq2 - phase * 0.65) * 0.45);
-                    float w2 = (float)(Math.Cos(t * (freq1 + 1.4f) - phase * 0.8) * 0.5 + 0.5);
-
-                    float ty = Math.Max(0f, (layer == 0 ? 4f : 16f) + w1 * 18f);
-                    float thickness = Math.Max(14f, baseH * (0.42f + 0.52f * w2) * (0.28f + 0.72f * edge));
-                    topPts[i] = new PointF(x, ty);
-                    botPts[segs - i] = new PointF(x, ty + thickness);
+                    jobW = _auroraW;
+                    jobH = _auroraH;
+                    tmpHoriz = _auroraTmpHoriz;
+                    x0Map = _auroraX0Map;
+                    x1Map = _auroraX1Map;
+                    xFracMap = _auroraXFracMap;
+                    workBuf = _auroraSpare;
+                    _auroraSpare = null;
                 }
 
-                using (GraphicsPath path = new GraphicsPath())
+                if (workBuf == null || workBuf.Length != jobW * jobH)
+                    workBuf = new int[jobW * jobH];
+
+                float audioBoost = AudioReactiveEnabled ? (_audioLevelSmooth * 0.95f + _audioBeat * 0.45f) : 0f;
+                float surgeBoost = 1.0f + _auroraSurge * 0.90f + audioBoost;
+                float snapTime = _time;
+
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
-                    path.AddCurve(topPts, 0.45f);
-                    path.AddCurve(botPts, 0.45f);
-                    path.CloseFigure();
-
-                    int aPeak = Math.Min(135, (int)((layer == 0 ? 44f : 34f) * surgeBoost));
-                    int aMid = Math.Min(95, (int)((layer == 0 ? 26f : 22f) * surgeBoost));
-                    Color cTop = (layer == 0) ? Color.FromArgb(0, 16, 185, 129) : Color.FromArgb(0, 99, 102, 241);
-                    Color cPeak = (layer == 0) ? Color.FromArgb(aPeak, 20, 210, 160) : Color.FromArgb(aPeak, 139, 92, 246);
-                    Color cMid = (layer == 0) ? Color.FromArgb(aMid, 56, 189, 248) : Color.FromArgb(aMid, 232, 121, 249);
-                    Color cBot = (layer == 0) ? Color.FromArgb(0, 56, 189, 248) : Color.FromArgb(0, 192, 132, 252);
-
-                    RectangleF bounds = new RectangleF(0f, 0f, Math.Max(10f, _screenW), baseH + 40f);
-                    using (LinearGradientBrush brush = new LinearGradientBrush(
-                        bounds, Color.Transparent, Color.Transparent, LinearGradientMode.Vertical))
+                    try
                     {
-                        ColorBlend cb = new ColorBlend(4);
-                        cb.Positions = new float[] { 0.0f, 0.34f, 0.68f, 1.0f };
-                        cb.Colors = new Color[] { cTop, cPeak, cMid, cBot };
-                        brush.InterpolationColors = cb;
-                        g.FillPath(brush, path);
+                        FillSilkyAuroraPixels(snapTime, surgeBoost);
+                        BilinearUpscaleAuroraSwar(_auroraSmallBuf, tmpHoriz, workBuf, jobW, jobH, x0Map, x1Map, xFracMap);
+                        lock (_auroraLock)
+                        {
+                            if (!_auroraDisposed && jobW == _auroraW && jobH == _auroraH)
+                            {
+                                int[] oldFront = _auroraFront;
+                                _auroraFront = workBuf;
+                                _auroraSpare = oldFront;
+                                _auroraHasFrame = true;
+                            }
+                        }
+                    }
+                    catch { }
+                    finally
+                    {
+                        System.Threading.Interlocked.Exchange(ref _auroraWorking, 0);
+                    }
+                });
+            }
+
+            // Ana 60 FPS çizim döngüsü sadece hazır tamponu doğrudan DIBSection belleğine kopyalar (~0.17 ms!)
+            if (_auroraHasFrame)
+            {
+                g.Flush(FlushIntention.Sync);
+                lock (_auroraLock)
+                {
+                    if (_auroraHasFrame && _auroraFront != null && _auroraW == _screenW && _auroraH == destH)
+                    {
+                        int count = _auroraW * _auroraH;
+                        if (count > 0 && count <= _screenW * _screenH)
+                            Marshal.Copy(_auroraFront, 0, _dibBits, count);
                     }
                 }
             }
@@ -9858,6 +10098,14 @@ namespace SnowyWindows
                 if (_audioMeter != null) _audioMeter.Dispose();
                 if (_surfaceGraphics != null) _surfaceGraphics.Dispose();
                 if (_surfaceBitmap != null) _surfaceBitmap.Dispose();
+                lock (_auroraLock)
+                {
+                    _auroraDisposed = true;
+                    _auroraHasFrame = false;
+                    _auroraFront = null;
+                    _auroraSpare = null;
+                    _auroraTmpHoriz = null;
+                }
                 for (int i = 0; i < 256; i++)
                 {
                     if (_alphaWhiteBrushes[i] != null) _alphaWhiteBrushes[i].Dispose();
@@ -12359,7 +12607,7 @@ namespace SnowyWindows
 
             Label verBadge = new Label
             {
-                Text = "v1.5.1",
+                Text = "v1.5.2",
                 Font = new Font("Consolas", 7.4f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(52, 211, 153),
                 BackColor = Color.FromArgb(18, 42, 46),
